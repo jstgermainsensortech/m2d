@@ -1,47 +1,23 @@
-<figure>
-  <img src="image-key-visual-m2d.jpg" alt="key_visual", width="60%">
-</figure>
+<table>
+  <tr> <td align="center" width="50%">
+      <img src="image-key-visual-m2d.jpg" alt="key_visual_M2D" width="95%"><br>
+      Masked Modeling Duo (M2D)
+    </td>
+    <td align="center" width="50%">
+      <img src="image-key-vis-m2d-clap.jpg" alt="key_visual_M2D-CLAP" width="73%"><br>
+      M2D-CLAP
+    </td> </tr>
+</table>
 
-# Masked Modeling Duo (M2D)
+# Masked Modeling Duo (M2D) & M2D-CLAP
 
-This repository provides demo implementations of our paper "[Masked Modeling Duo: Towards a Universal Audio Pre-training Framework](https://ieeexplore.ieee.org/document/10502167)", "[Masked Modeling Duo: Learning Representations by Encouraging Both Networks to Model the Input](https://arxiv.org/abs/2210.14648)", and so on.
-
-## Pre-trained/Fine-tuned Weights
-
-### AudioSet pre-trained weights
-
-| Weight        | Recommendation  | Description | Fur-PT Ready | AS2M mAP |
-|:--------------|:----------------|:------------|:------:|:--------:|
-| [m2d_clap_vit_base-80x1001p16x16-240128_AS-FT_enconly](https://github.com/nttcslab/m2d/releases/download/v0.3.0/m2d_clap_vit_base-80x1001p16x16-240128_AS-FT_enconly.zip) | Best for audio tagging (AT) / sound event detection (SED). (Encoder only) | M2D-CLAP fine-tuned on AS2M | N/A | 0.485 |
-| [m2d_as_vit_base-80x1001p16x16-240213_AS-FT_enconly](https://github.com/nttcslab/m2d/releases/download/v0.3.0/m2d_as_vit_base-80x1001p16x16-240213_AS-FT_enconly.zip) | 2nd best for AT/SED. (Encoder only) | M2D-AS fine-tuned on AS2M | N/A | 0.485 |
-| [m2d_vit_base-80x1001p16x16-221006-mr7_as_46ab246d](https://github.com/nttcslab/m2d/releases/download/v0.3.0/m2d_vit_base-80x1001p16x16-221006-mr7_as_46ab246d.zip) | 3rd best for AT/SED. (Encoder only) | M2D/0.7 fine-tuned on AS2M | N/A | 0.479 |
-| [m2d_vit_base-80x200p16x4-230529](https://github.com/nttcslab/m2d/releases/download/v0.1.0/m2d_vit_base-80x200p16x4-230529.zip) | General-purpose transfer learning and further pre-training w/ finer time frame. | M2D/0.7 (t.f. 40ms) | ✅ | - |
-| [m2d_clap_vit_base-80x608p16x16-240128](https://github.com/nttcslab/m2d/releases/download/v0.1.0/m2d_clap_vit_base-80x608p16x16-240128.zip) | General-purpose transfer learning and further pre-training, especially when application data is closer to the AudioSet ontology. | M2D-CLAP | ✅ | - |
-| [m2d_as_vit_base-80x608p16x16-240213](https://github.com/nttcslab/m2d/releases/download/v0.1.0/m2d_as_vit_base-80x608p16x16-240213.zip) | General-purpose transfer learning and further pre-training, especially when application data is closer to the AudioSet ontology. | M2D-AS | ✅ | - |
-| [m2d_vit_base-80x608p16x16-221006-mr7](https://github.com/nttcslab/m2d/releases/download/v0.1.0/m2d_vit_base-80x608p16x16-221006-mr7.zip) | General-purpose transfer learning and further pre-training. | M2D/0.7 | ✅ | - |
-| [m2d_vit_base-80x608p16x16-221006-mr6](https://github.com/nttcslab/m2d/releases/download/v0.1.0/m2d_vit_base-80x608p16x16-221006-mr6.zip) | General-purpose transfer learning and further pre-training. | M2D/0.6 | ✅ | - |
-| [m2d_vit_base-80x608p16x16-221006-mr7_enconly](https://github.com/nttcslab/m2d/releases/download/v0.1.0/m2d_vit_base-80x608p16x16-221006-mr7_enconly.zip) | General-purpose transfer learning. (Encoder only) | M2D/0.7 | N/A | - |
-| [m2d_vit_base-80x608p16x16-220930-mr7_enconly](https://github.com/nttcslab/m2d/releases/download/v0.1.0/m2d_vit_base-80x608p16x16-220930-mr7_enconly.zip) | General-purpose transfer learning. (Encoder only) | M2D/0.7 | N/A | - |
-
-| Weight        | Recommendation  | Description | Fur-PT Ready | AS2M mAP |
-|:--------------|:----------------|:------------|:------:|:--------:|
-| [m2d_as_vit_base-80x1001p16x16p32k-240413_AS-FT_enconly](https://github.com/nttcslab/m2d/releases/download/v0.3.0/m2d_as_vit_base-80x1001p16x16p32k-240413_AS-FT_enconly.zip) | Best for audio tagging (AT) / sound event detection (SED) at 32 kHz.| M2D-AS fine-tuned on AS2M@32kHz | N/A | 0.480 |
-| [m2d_as_vit_base-80x608p16x16p32k-240413_enconly](https://github.com/nttcslab/m2d/releases/download/v0.1.0/m2d_as_vit_base-80x608p16x16p32k-240413_enconly.zip) | General-purpose transfer learning at 32 kHz. (Encoder only) | M2D-AS@32kHz | N/A | - |
-
-### LibriSpeech pre-trained weights
-
-| Weight        | Recommendation  | Description | Fur-PT Ready | AS2M mAP |
-|:--------------|:----------------|:------------|:------:|:--------:|
-| [m2d_s_vit_base-80x608p80x2-230220](https://github.com/nttcslab/m2d/releases/download/v0.2.0/m2d_s_vit_base-80x608p80x2-230220.zip) | Speech transfer learning and further pre-training. | M2D-S/0.6 6-s input | ✅ | - |
-| [m2d_s_vit_base-80x512p80x2-230301](https://github.com/nttcslab/m2d/releases/download/v0.2.0/m2d_s_vit_base-80x512p80x2-230301.zip) | Speech transfer learning and further pre-training. | M2D-S/0.6 5-s input | ✅ | - |
-| [m2d_s_vit_base-80x400p80x2-230201](https://github.com/nttcslab/m2d/releases/download/v0.2.0/m2d_s_vit_base-80x400p80x2-230201.zip) | Speech transfer learning and further pre-training. | M2D-S/0.6 4-s input | ✅ | - |
-
+This repository provides demo implementations of our paper "[Masked Modeling Duo: Towards a Universal Audio Pre-training Framework](https://ieeexplore.ieee.org/document/10502167)", "[M2D-CLAP: Exploring General-purpose Audio-Language Representations Beyond CLAP](https://ieeexplore.ieee.org/document/11168481)", "[Masked Modeling Duo: Learning Representations by Encouraging Both Networks to Model the Input](https://arxiv.org/abs/2210.14648)", and so on.
 
 ## Quick Start
 
 | Description | Notebook |
 |:------------|:---------|
-| Audio tagging example | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg) examples/Colab_M2D_example_Tagging.ipynb](http://colab.research.google.com/github/nttcslab/m2d/blob/master/examples/Colab_M2D_example_Tagging.ipynb) |
+| Audio tagging example (M2D) | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg) examples/Colab_M2D_example_Tagging.ipynb](http://colab.research.google.com/github/nttcslab/m2d/blob/master/examples/Colab_M2D_example_Tagging.ipynb) |
 | Zero-shot ESC-50 classification with M2D-CLAP | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg) examples/Colab_M2D-CLAP_ESC-50_ZS.ipynb](http://colab.research.google.com/github/nttcslab/m2d/blob/master/examples/Colab_M2D-CLAP_ESC-50_ZS.ipynb) |
 | Audio feature visualization example with M2D-CLAP | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg) examples/Colab_M2D-CLAP_ESC-50_VizualizeEmbs.ipynb](http://colab.research.google.com/github/nttcslab/m2d/blob/master/examples/Colab_M2D-CLAP_ESC-50_VizualizeEmbs.ipynb) |
 
@@ -50,7 +26,7 @@ You can use simple code to load an M2D model and encode your audio.
 ```python
 # Create a model and load pre-trained weights.
 from examples.portable_m2d import PortableM2D  # The portable_m2d is a simple one-file loader.
-model = PortableM2D('m2d_as_vit_base-80x1001p16x16-240213_AS-FT_enconly/weights_ep69it3124-0.48494.pth')
+model = PortableM2D('m2d_clap_vit_base-80x1001p16x16p16kpBpTI-2025/checkpoint-30.pth')
 
 # Prepare test audios. (a dummy example of three 10-s waveforms)
 import torch
@@ -64,6 +40,40 @@ print(frame_level.shape)  # torch.Size([3, 63, 3840]). 3 frame-level 3840-d feat
 clip_level = torch.mean(frame_level, dim=1)
 print(clip_level.shape)  # torch.Size([3, 3840])
 ```
+
+
+## Pre-trained/Fine-tuned Weights
+
+### AudioSet pre-trained weights
+
+| Description | Recommendation | Weight | Fur-PT Ready | AS2M mAP |
+|:------------|:---------------|:-------|:-------------:|:--------:|
+| M2D-CLAP_2025, fine-tuned on AS2M in Stage 1.1 | Best for CLAP / audio tagging (AT) / sound event detection (SED). | [m2d_clap_vit_base-80x1001p16x16p16kpBpTI-2025](https://github.com/nttcslab/m2d/releases/download/v0.5.0/m2d_clap_vit_base-80x1001p16x16p16kpBpTI-2025.zip) | ✅ | 0.490 |
+| M2D-CLAP_2024, additionally fine-tuned on AS2M | 2nd Best for AT/SED. (Encoder only) | [m2d_clap_vit_base-80x1001p16x16-240128_AS-FT_enconly](https://github.com/nttcslab/m2d/releases/download/v0.3.0/m2d_clap_vit_base-80x1001p16x16-240128_AS-FT_enconly.zip) | N/A | 0.485 |
+| M2D-AS fine-tuned on AS2M | 3rd best for AT/SED. (Encoder only) | [m2d_as_vit_base-80x1001p16x16-240213_AS-FT_enconly](https://github.com/nttcslab/m2d/releases/download/v0.3.0/m2d_as_vit_base-80x1001p16x16-240213_AS-FT_enconly.zip) | N/A | 0.485 |
+| M2D/0.7 fine-tuned on AS2M | 4th best for AT/SED. (Encoder only) | [m2d_vit_base-80x1001p16x16-221006-mr7_as_46ab246d](https://github.com/nttcslab/m2d/releases/download/v0.3.0/m2d_vit_base-80x1001p16x16-221006-mr7_as_46ab246d.zip) | N/A | 0.479 |
+| M2D/0.7 | General-purpose transfer learning and further pre-training. | [m2d_vit_base-80x608p16x16-221006-mr7](https://github.com/nttcslab/m2d/releases/download/v0.1.0/m2d_vit_base-80x608p16x16-221006-mr7.zip) | ✅ | - |
+| M2D/0.7 | General-purpose transfer learning. (Encoder only) | [m2d_vit_base-80x608p16x16-221006-mr7_enconly](https://github.com/nttcslab/m2d/releases/download/v0.1.0/m2d_vit_base-80x608p16x16-221006-mr7_enconly.zip) | N/A | - |
+| M2D/0.7 | General-purpose transfer learning. (Encoder only) | [m2d_vit_base-80x608p16x16-220930-mr7_enconly](https://github.com/nttcslab/m2d/releases/download/v0.1.0/m2d_vit_base-80x608p16x16-220930-mr7_enconly.zip) | N/A | - |
+| M2D/0.7 (t.f. 40ms) | General-purpose transfer learning and further pre-training w/ finer time frame. | [m2d_vit_base-80x200p16x4-230529](https://github.com/nttcslab/m2d/releases/download/v0.1.0/m2d_vit_base-80x200p16x4-230529.zip) | ✅ | - |
+| M2D-X/0.7 (η= 0.3) | The best ICBHI 2017 model in Section IV-E on the [TASLP paper](https://ieeexplore.ieee.org/document/10502167). | [m2d_x_icbhi](https://github.com/nttcslab/m2d/releases/download/v0.2.0/m2d_x_icbhi.tgz) | N/A | - |
+| M2D/0.6 | General-purpose transfer learning and further pre-training. | [m2d_vit_base-80x608p16x16-221006-mr6](https://github.com/nttcslab/m2d/releases/download/v0.1.0/m2d_vit_base-80x608p16x16-221006-mr6.zip) | ✅ | - |
+| M2D-CLAP_2024 (Older) | General-purpose transfer learning and further pre-training, especially when application data is closer to the AudioSet ontology. | [m2d_clap_vit_base-80x608p16x16-240128](https://github.com/nttcslab/m2d/releases/download/v0.1.0/m2d_clap_vit_base-80x608p16x16-240128.zip) | ✅ | - |
+| M2D-AS | General-purpose transfer learning and further pre-training, especially when application data is closer to the AudioSet ontology. | [m2d_as_vit_base-80x608p16x16-240213](https://github.com/nttcslab/m2d/releases/download/v0.1.0/m2d_as_vit_base-80x608p16x16-240213.zip) | ✅ | - |
+
+| Description | Recommendation | Weight | Fur-PT Ready | AS2M mAP |
+|:--------------|:----------------|:------------|:------:|:--------:|
+| M2D-AS fine-tuned on AS2M@32kHz | Best for audio tagging (AT) / sound event detection (SED) at 32 kHz. | [m2d_as_vit_base-80x1001p16x16p32k-240413_AS-FT_enconly](https://github.com/nttcslab/m2d/releases/download/v0.3.0/m2d_as_vit_base-80x1001p16x16p32k-240413_AS-FT_enconly.zip) | N/A | 0.480 |
+| M2D-AS@32kHz | General-purpose transfer learning at 32 kHz. (Encoder only) | [m2d_as_vit_base-80x608p16x16p32k-240413_enconly](https://github.com/nttcslab/m2d/releases/download/v0.1.0/m2d_as_vit_base-80x608p16x16p32k-240413_enconly.zip) | N/A | - |
+
+### LibriSpeech pre-trained weights
+
+| Description | Recommendation | Weight | Fur-PT Ready | AS2M mAP |
+|:--------------|:----------------|:------------|:------:|:--------:|
+| M2D-S/0.6 6-s input | Speech transfer learning and further pre-training. | [m2d_s_vit_base-80x608p80x2-230220](https://github.com/nttcslab/m2d/releases/download/v0.2.0/m2d_s_vit_base-80x608p80x2-230220.zip) | ✅ | - |
+| M2D-S/0.6 5-s input | Speech transfer learning and further pre-training. | [m2d_s_vit_base-80x512p80x2-230301](https://github.com/nttcslab/m2d/releases/download/v0.2.0/m2d_s_vit_base-80x512p80x2-230301.zip) | ✅ | - |
+| M2D-S/0.6 4-s input | Speech transfer learning and further pre-training. | [m2d_s_vit_base-80x400p80x2-230201](https://github.com/nttcslab/m2d/releases/download/v0.2.0/m2d_s_vit_base-80x400p80x2-230201.zip) | ✅ | - |
+
 
 ## Application Resources
 
@@ -102,6 +112,7 @@ The repository is based on the codes from [facebookresearch/mae](https://github.
     curl -o train_audio.py https://raw.githubusercontent.com/facebookresearch/mae/efb2a8062c206524e35e47d04501ed4f544c0ae8/main_pretrain.py
     curl -o speech/train_speech.py https://raw.githubusercontent.com/facebookresearch/mae/efb2a8062c206524e35e47d04501ed4f544c0ae8/main_pretrain.py
     curl -o audioset/train_as.py https://raw.githubusercontent.com/facebookresearch/mae/efb2a8062c206524e35e47d04501ed4f544c0ae8/main_pretrain.py
+    curl -o clap/clap_only.py https://raw.githubusercontent.com/facebookresearch/mae/efb2a8062c206524e35e47d04501ed4f544c0ae8/main_pretrain.py
     curl -o clap/train_clap.py https://raw.githubusercontent.com/facebookresearch/mae/efb2a8062c206524e35e47d04501ed4f544c0ae8/main_pretrain.py
     curl -o mae_train_audio.py https://raw.githubusercontent.com/facebookresearch/mae/efb2a8062c206524e35e47d04501ed4f544c0ae8/main_pretrain.py
     curl -o m2d/engine_pretrain_m2d.py https://raw.githubusercontent.com/facebookresearch/mae/efb2a8062c206524e35e47d04501ed4f544c0ae8/engine_pretrain.py
@@ -261,6 +272,14 @@ See [LICENSE.pdf](LICENSE.pdf) for details.
 If you find our M2D useful in your research, please consider citing our papers.
 
 ```BibTeX
+@article{niizumi2025m2d-clap,
+    author  = {Niizumi, Daisuke and Takeuchi, Daiki and Yasuda, Masahiro and Nguyen, Binh Thien and Ohishi, Yasunori and Harada, Noboru},
+    journal = {IEEE Access}, 
+    title   = {M2D-CLAP: Exploring General-purpose Audio-Language Representations Beyond CLAP}, 
+    year    = {2025},
+    pages   = {1-1},
+    doi={10.1109/ACCESS.2025.3611348}}
+
 @article{niizumi2024m2dx,
     title   = {{Masked Modeling Duo: Towards a Universal Audio Pre-training Framework}},
     author  = {Daisuke Niizumi and Daiki Takeuchi and Yasunori Ohishi and Noboru Harada and Kunio Kashino},
@@ -271,17 +290,18 @@ If you find our M2D useful in your research, please consider citing our papers.
     url     = {https://ieeexplore.ieee.org/document/10502167},
     doi     = {10.1109/TASLP.2024.3389636}}
 
-@article{niizumi2024m2d-clap,
+@inproceedings{niizumi2024m2d-clap,
     title   = {{M2D-CLAP: Masked Modeling Duo Meets CLAP for Learning General-purpose Audio-Language Representation}},
     author  = {Daisuke Niizumi and Daiki Takeuchi and Yasunori Ohishi and Noboru Harada and Masahiro Yasuda and Shunsuke Tsubaki and Keisuke Imoto},
-    journal = {to appear at Interspeech},
+    booktitle={Interspeech},
     year    = {2024},
-    url     = {https://arxiv.org/abs/2406.02032}}
+    pages   = {57--61},
+    doi     = {10.21437/Interspeech.2024-29}}
 
 @inproceedings{niizumi2023m2d,
     title   = {{Masked Modeling Duo: Learning Representations by Encouraging Both Networks to Model the Input}},
     author  = {Daisuke Niizumi and Daiki Takeuchi and Yasunori Ohishi and Noboru Harada and Kunio Kashino},
-    booktitle={ICASSP 2023 - 2023 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)}, 
+    booktitle={ICASSP}, 
     year    = {2023},
     url     = {https://ieeexplore.ieee.org/document/10097236},
     doi     = {10.1109/ICASSP49357.2023.10097236}}
@@ -290,16 +310,17 @@ If you find our M2D useful in your research, please consider citing our papers.
     title   = {{Masked Modeling Duo for Speech: Specializing General-Purpose Audio Representation to Speech using Denoising Distillation}},
     author  = {Daisuke Niizumi and Daiki Takeuchi and Yasunori Ohishi and Noboru Harada and Kunio Kashino},
     year    = {2023},
-    booktitle={Proc. INTERSPEECH 2023},
+    booktitle={Interspeech},
     pages   = {1294--1298},
     doi     = {10.21437/Interspeech.2023-221}}
 
-@article{niizumi2024embc,
+@inproceedings{niizumi2024embc,
     title   = {{Exploring Pre-trained General-purpose Audio Representations for Heart Murmur Detection}},
-    author  = {Daisuke Niizumi and Daiki Takeuchi and Yasunori Ohishi and Noboru Harada and Kunio Kashino},
-    journal = {to appear at IEEE EMBC},
+    author. = {Niizumi, Daisuke and Takeuchi, Daiki and Ohishi, Yasunori and Harada, Noboru and Kashino, Kunio},
+    booktitle={EMBC},
     year    = {2024},
-    url     = {https://arxiv.org/abs/2404.17107}}
+    pages.  = {1-4},
+    doi     = {10.1109/EMBC53108.2024.10782479}}
 ```
 
 ## Acknowledgements

@@ -24,6 +24,8 @@ Notably, the example follows the test setup compatible with previous studies, en
 
 # ISBHI2017
 
+NEWS: The best model, `M2D-X/0.7 (η= 0.3)`, weight is available at the release [v0.2.0](https://github.com/nttcslab/m2d/releases/tag/v0.2.0).
+
 ## 1. Data and test setup
 
 ### 1-1. Setup application files

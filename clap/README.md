@@ -4,15 +4,24 @@
   <img src="image_figure2.jpg" alt="image_figure2", width="50%">
 </figure>
 
-This sub-repository provides codes for [our Interspeech 2024 paper](https://arxiv.org/abs/TBD), including the setup procedure for the training caption data and the pre-training steps.
+This sub-repository provides codes for our M2D-CLAP papers, including the setup procedure for the training caption data and the pre-training steps.
 
 ```bibtex
-@article{niizumi2024m2d-clap,
+@article{niizumi2025m2d-clap,
+    author  = {Niizumi, Daisuke and Takeuchi, Daiki and Yasuda, Masahiro and Nguyen, Binh Thien and Ohishi, Yasunori and Harada, Noboru},
+    journal = {IEEE Access}, 
+    title   = {M2D-CLAP: Exploring General-purpose Audio-Language Representations Beyond CLAP}, 
+    year    = {2025},
+    pages   = {1-1},
+    doi={10.1109/ACCESS.2025.3611348}}
+
+@inproceedings{niizumi2024m2d-clap,
     title   = {{M2D-CLAP: Masked Modeling Duo Meets CLAP for Learning General-purpose Audio-Language Representation}},
     author  = {Daisuke Niizumi and Daiki Takeuchi and Yasunori Ohishi and Noboru Harada and Masahiro Yasuda and Shunsuke Tsubaki and Keisuke Imoto},
-    journal = {to appear at Interspeech},
+    booktitle={Interspeech},
     year    = {2024},
-    url     = {https://arxiv.org/abs/2406.02032}}
+    pages   = {57--61},
+    doi     = {10.21437/Interspeech.2024-29}}
 ```
 
 ## 1. Setup
@@ -41,7 +50,7 @@ OMP_NUM_THREADS=1 torchrun --nproc_per_node=4 -m semantics.train_clap --input_si
 
 ## 3. Evaluation
 
-Quick example: [examples/Example_4_CLAP.ipynb](../examples/Example_4_CLAP.ipynb).
+Quick example: [examples/Example_4_CLAP2025.ipynb](../examples/Example_4_CLAP2025.ipynb).
 
 The evaluation steps follow the [original M2D](../README.md#2-evaluating-m2d).
 

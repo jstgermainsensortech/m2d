@@ -1,7 +1,9 @@
 cd evar
 GPU=0
+NAME=$(basename $(dirname "$1"))/$(basename "$1")
+echo Processing $NAME
 
-if [[ "$1" == *'p32k-'* ]]; then
+if [[ "$1" == *'p32k'* ]]; then
     cfg='config/m2d_32k.yaml'
     cfg_clap='config/m2d_clap_32k.yaml'
 else
@@ -9,7 +11,7 @@ else
     cfg_clap='config/m2d_clap.yaml'
 fi
 
-if [[ "$1" == *'_clap'* ]]; then
+if [[ $NAME == *'_clap'*'/checkpoint'* ]]; then
     zs_opt=',flat_features=True'
 fi
 
@@ -23,7 +25,7 @@ CUDA_VISIBLE_DEVICES=$GPU python 2pass_lineareval.py $cfg voxforge batch_size=64
 CUDA_VISIBLE_DEVICES=$GPU python 2pass_lineareval.py $cfg nsynth batch_size=64,weight_file=$1
 CUDA_VISIBLE_DEVICES=$GPU python 2pass_lineareval.py $cfg surge batch_size=64,weight_file=$1
 
-if [[ "$1" == *'_clap'* ]] || [[ "$1" == *'_capgte_'* ]]; then
+if [[ $NAME == *'_clap'*'/checkpoint'* ]]; then
     echo 'Zero-shot evaluation'
     CUDA_VISIBLE_DEVICES=$GPU python zeroshot.py $cfg_clap cremad batch_size=16,weight_file=$1$zs_opt
     CUDA_VISIBLE_DEVICES=$GPU python zeroshot.py $cfg_clap gtzan batch_size=16,weight_file=$1$zs_opt
@@ -32,6 +34,12 @@ if [[ "$1" == *'_clap'* ]] || [[ "$1" == *'_capgte_'* ]]; then
     CUDA_VISIBLE_DEVICES=$GPU python zeroshot.py $cfg_clap us8k batch_size=64,weight_file=$1$zs_opt
     CUDA_VISIBLE_DEVICES=$GPU python zeroshot.py $cfg_clap fsd50k batch_size=64,weight_file=$1$zs_opt
     CUDA_VISIBLE_DEVICES=$GPU python zeroshot.py $cfg_clap as batch_size=64,weight_file=$1$zs_opt
+fi
+
+if [[ $NAME == *'_clap'*'/checkpoint'* ]]; then
+    echo 'Audio-text retrieval evaluation'
+    CUDA_VISIBLE_DEVICES=$GPU python retr_a2t_t2a.py $cfg_clap audiocaps batch_size=64,weight_file=$1$zs_opt
+    CUDA_VISIBLE_DEVICES=$GPU python retr_a2t_t2a.py $cfg_clap clotho batch_size=64,weight_file=$1$zs_opt
 fi
 
 python summarize.py $1

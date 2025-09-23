@@ -54,7 +54,7 @@ class SpectrogramDataset(torch.utils.data.Dataset):
             lms_vectors = torch.stack(lms_vectors)
             norm_stats = lms_vectors.mean(), lms_vectors.std() + torch.finfo().eps
         elif isinstance(norm_stats, (str)):
-            # Lpoad from a file
+            # Load from a file
             if Path(norm_stats).exists():
                 norm_stats = torch.FloatTensor(np.load(norm_stats))
             else:

@@ -18,7 +18,7 @@ CUDA_VISIBLE_DEVICES=$GPU python lineareval.py $cfg gtzan batch_size=16,weight_f
 CUDA_VISIBLE_DEVICES=$GPU python lineareval.py $cfg spcv2 batch_size=64,weight_file=$1
 CUDA_VISIBLE_DEVICES=$GPU python lineareval.py $cfg esc50 batch_size=64,weight_file=$1
 
-if [[ "$1" == *'_clap'* ]] || [[ "$1" == *'_capgte'* ]]; then
+if [[ "$1" == *'_clap'* ]]; then
     echo 'Zero-shot evaluation'
     CUDA_VISIBLE_DEVICES=$GPU python zeroshot.py $cfg_clap cremad batch_size=16,weight_file=$1$zs_opt
     CUDA_VISIBLE_DEVICES=$GPU python zeroshot.py $cfg_clap gtzan batch_size=16,weight_file=$1$zs_opt
@@ -27,6 +27,12 @@ if [[ "$1" == *'_clap'* ]] || [[ "$1" == *'_capgte'* ]]; then
     CUDA_VISIBLE_DEVICES=$GPU python zeroshot.py $cfg_clap us8k batch_size=64,weight_file=$1$zs_opt
     CUDA_VISIBLE_DEVICES=$GPU python zeroshot.py $cfg_clap fsd50k batch_size=64,weight_file=$1$zs_opt
     CUDA_VISIBLE_DEVICES=$GPU python zeroshot.py $cfg_clap as batch_size=64,weight_file=$1$zs_opt
+fi
+
+if [[ "$1" == *'_clap'* ]]; then
+    echo 'Audio-text retrieval evaluation'
+    CUDA_VISIBLE_DEVICES=$GPU python retr_a2t_t2a.py $cfg_clap audiocaps batch_size=64,weight_file=$1$zs_opt
+    CUDA_VISIBLE_DEVICES=$GPU python retr_a2t_t2a.py $cfg_clap clotho batch_size=64,weight_file=$1$zs_opt
 fi
 
 python summarize.py $1

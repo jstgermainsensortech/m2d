@@ -1,7 +1,10 @@
 """Masked Modeling Duo (M2D) Portable Runtime.
 
-All you need is:
-    pip install timm, einops, nnAudio
+Basic requirements:
+    pip install timm einops nnAudio transformers
+
+Additional requirements for CLAP:
+    pip install sentence_transformers
 """
 
 import logging
@@ -104,18 +107,8 @@ class LocalViT(timm.models.vision_transformer.VisionTransformer):
         return x
 
 
-def get_MLP_projector(embed_dim, proj_hidden_dim, out_embed_dim):
-    projector = torch.nn.Sequential(
-        torch.nn.Linear(embed_dim, proj_hidden_dim),
-        torch.nn.ReLU(),
-        torch.nn.Linear(proj_hidden_dim, out_embed_dim),
-    )
-    return projector
-
-
-class AudioToSemantic(torch.nn.Module):
+class AudioSemanticProj(torch.nn.Module):
     def __init__(self, embed_dim=768, sem_depth=1, sem_heads=1, sem_mlp_ratio=1):
-        # grid_size, pos_embed
         super().__init__()
         self.sem_token = torch.nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.sem_blocks = torch.nn.ModuleList([
@@ -135,15 +128,15 @@ class AudioToSemantic(torch.nn.Module):
             torch.nn.init.constant_(m.weight, 1.0)
 
     def forward(self, x):
-        # Append semantic token
+        # append sem token
         sem_token = self.sem_token  # + self.pos_embed[:, :1, :]
         sem_tokens = sem_token.expand(x.shape[0], -1, -1)
         x = torch.cat((sem_tokens, x), dim=1)
 
-        # Apply Transformer blocks
+        # apply Transformer blocks
         for blk in self.sem_blocks:
             x = blk(x)
-        x = x[:, 0, :]  # Use semantic token only
+        x = x[:, 0, :]  # use semantic token only
         x = self.norm(x)
 
         return x
@@ -166,11 +159,16 @@ def parse_sizes_by_name(name):
     return input_size, patch_size, sr, model_cls, extra
 
 
-def drop_non_model_weights(model, checkpoint, filename):
+def drop_non_model_weights(model, checkpoint, filename, except_for=[]):  # except_for=['running_mean', 'running_var']
+    def not_an_exception(k):
+        for ex in except_for:
+            if ex in k: return False
+        return True
     model_keys = [n for n, p in model.named_parameters()]
-    new_ckpt, dropped = {}, []
+    new_ckpt = {}
+    dropped = []
     for k in checkpoint:
-        if k not in model_keys:
+        if k not in model_keys and not_an_exception(k):
             dropped.append(k)
             continue
         new_ckpt[k] = checkpoint[k]
@@ -207,11 +205,13 @@ def reformat_ckpt_keys(checkpoint):
 
 
 def extract_weight(checkpoint, root_name):
-    # If no key matches the root_name, return the checkpoint unchanged.
+    # if no key starts with root_name, not applicable to the checkpoint.
     if not any(k.startswith(root_name) for k in checkpoint.keys()):
         return checkpoint
-    # Keep only the items starts with the root_name
+    # keep only the items starts with the root_name
     new_ckpt = {k[len(root_name):]: v for k, v in checkpoint.items() if k.startswith(root_name)}
+    # for k, v in checkpoint.items():
+    #     root_name
     return new_ckpt
 
 
@@ -219,10 +219,8 @@ def add_semantic_audio_proj(sem_mode, embed_dim):
     sem_params = {
         1: {'sem_depth': 1, 'sem_heads': 1, 'sem_mlp_ratio': 1},
         2: {'sem_depth': 2, 'sem_heads': 1, 'sem_mlp_ratio': 1},
-        3: {'sem_depth': 3, 'sem_heads': 1, 'sem_mlp_ratio': 2},
-        4: {'sem_depth': 4, 'sem_heads': 1, 'sem_mlp_ratio': 2},
     }[sem_mode]
-    audio_proj = AudioToSemantic(embed_dim=embed_dim, **sem_params)
+    audio_proj = AudioSemanticProj(embed_dim=embed_dim, **sem_params)
     return audio_proj
 
 
@@ -231,8 +229,13 @@ def make_it_CLAP(model, checkpoint):
     if hasattr(model, 'audio_proj') or checkpoint is None: return
     # Add projectors if needed
     if 'audio_proj.0.weight' in checkpoint.keys():
+        print(checkpoint['audio_proj.0.weight'].shape)
         proj_hidden_dim, embed_dim = checkpoint['audio_proj.0.weight'].shape
-        model.audio_proj = get_MLP_projector(embed_dim, embed_dim, embed_dim)
+        model.audio_proj = torch.nn.Sequential(
+            torch.nn.Linear(embed_dim, proj_hidden_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(proj_hidden_dim, proj_hidden_dim),
+        )
     if 'audio_proj.sem_token' in checkpoint.keys():
         embed_dim = checkpoint['audio_proj.sem_token'].shape[-1]
         sem_blocks_nums = [int(k.split('.')[2]) for k in checkpoint.keys() if k.startswith('audio_proj.sem_blocks.')]
@@ -241,12 +244,6 @@ def make_it_CLAP(model, checkpoint):
     if 'text_proj.weight' in checkpoint.keys():
         dim = checkpoint['text_proj.weight'].shape
         model.text_proj = torch.nn.Linear(dim[1], dim[0])
-    if 'text_proj.2.weight' in checkpoint.keys():
-        dim = checkpoint['text_proj.2.weight'].shape
-        model.text_proj = get_MLP_projector(dim[1], dim[1], dim[0])
-    ## For M2D-CLAP (2025) ablations
-    if hasattr(model, 'text_proj') and not hasattr(model, 'audio_proj'):
-        model.audio_proj = torch.nn.Identity()
 
 
 def parse_clap_type(name):
@@ -256,35 +253,26 @@ def parse_clap_type(name):
     params, extra = params[:3], params[3:]
     if len(extra) == 0:
         return 'A'
-    assert extra[0] in 'ABN'
-    text_encoder_name = {'A': 'GTE base', 'B': 'BERT base', 'N': 'NV-Embed-v2'}
+    assert extra[0] in 'ABCLMNQR'
+    text_encoder_name = {'A': 'GTE base', 'B': 'BERT base', 'C': 'CLAP-L', 'L': 'GTE large', 'M': 'BERT large', 'N': 'NV-Embed-v2',
+                         'Q': 'RoBERTa large', 'R': 'RoBERTa base'}
     logging.info(f' using text encoder: {text_encoder_name[extra[0]]}')
     return extra[0]
 
 
-def clap_off_emb_dim(param_extra):
+def clap_text_enc_dim(param_extra):
     if len(param_extra) == 0:
         return 768
-    return {'A': 768, 'B': 768, 'N': 4096}[param_extra[0]]
-
-
-def parse_clap_text_encoder_weight(param_extra, cfg, ckpt_cfg=None):
-    # param_extra[0]=text encoder type, param_extra[1]=text encoder included (TI)
-    if len(param_extra) <= 1:
-        return None
-    if len(param_extra) > 1 and param_extra[1] == 'TI':  # text encoder included
-        return cfg.weight_file
-    assert False, f'unknown extra parameters: {param_extra}'
+    return {'A': 768, 'B': 768, 'C': 1024, 'L': 1024, 'M': 1024, 'N': 4096, 'Q': 1024, 'R': 768}[param_extra[0]]
 
 
 def get_backbone(args, weight_file):
     args.input_size, args.patch_size, args.sr, args.model, extra = parse_sizes_by_name(Path(weight_file).parent.name)
 
     # Load checkpoint.
-    checkpoint = torch.load(weight_file, weights_only=False, map_location='cpu')
-    ckpt_cfg = checkpoint['args'] if 'args' in checkpoint else None
+    checkpoint = torch.load(weight_file, map_location='cpu', weights_only=False)
     checkpoint = checkpoint['model'] if 'model' in checkpoint else checkpoint
-    checkpoint = extract_weight(checkpoint, 'backbone.')  # Convert from RuntimeM2D weights
+    checkpoint = extract_weight(checkpoint, 'backbone.') if checkpoint is not None else None  # convert from RuntimeM2D weights
     checkpoint = reformat_ckpt_keys(checkpoint)
     # Set normalization statistics for backward compatibility. The [-7.1, 4.2] is for 2022 models.
     if 'norm_stats' not in checkpoint:
@@ -298,18 +286,16 @@ def get_backbone(args, weight_file):
 
     # Modify the model if it should be a M2D-CLAP.
     make_it_CLAP(model, checkpoint)
+    if len(extra) > 1 and extra[1] == 'TI':  # text encoder included
+        args.text_encoder_weight = weight_file
 
     # Load weights.
     dropped = drop_non_model_weights(model, checkpoint, weight_file)
     msg = model.load_state_dict(dropped)
     print(msg); logging.info(msg)
 
-    # Get text encoder weights for M2D-CLAP models.
-    args.text_encoder_weight = parse_clap_text_encoder_weight(extra, args, ckpt_cfg)
-
     # Make normalization statistics for the model easy to use in the downstream task.
     args.mean, args.std = model.state_dict()['norm_stats'].to('cpu').numpy()
-    print(f' using norm_stats: {args.mean}, {args.std}')
 
     model.eval()
     return model, checkpoint
@@ -354,9 +340,9 @@ def get_timestamps(cfg, batch_audio, x):  # Returns timestamps in milliseconds.
 
 
 class PortableM2D(torch.nn.Module):
-    def __init__(self, weight_file, num_classes=None, freeze_embed=False, flat_features=None):
+    def __init__(self, weight_file, cfg=Config(), num_classes=None, freeze_embed=False, flat_features=None):
         super().__init__()
-        self.cfg = Config()
+        self.cfg = cfg
         self.cfg.weight_file = weight_file
         self.cfg.freeze_embed = freeze_embed
         self.cfg.flat_features = self.cfg.flat_features if flat_features is None else flat_features
@@ -416,7 +402,7 @@ class PortableM2D(torch.nn.Module):
 
         embeddings = []
         if self.cfg.flat_features:
-            # Fatten all patch embeddings
+            # flatten all patch embeddings
             for i in range(n_chunk):
                 emb = self.backbone.forward_encoder(x[..., i*unit_frames:(i+1)*unit_frames])
                 emb = emb[..., 1:, :]
@@ -424,13 +410,13 @@ class PortableM2D(torch.nn.Module):
                     emb = rearrange(emb, 'b (f t) d -> b t d f', f=patch_fbins, d=embed_d).mean(-1)
                 embeddings.append(emb)
         else:
-            # Stack embeddings along time frame
+            # stack embeddings along time frame
             for i in range(n_chunk):
                 emb = self.backbone.forward_encoder(x[..., i*unit_frames:(i+1)*unit_frames])
                 emb = emb[..., 1:, :]
                 emb = rearrange(emb, 'b (f t) d -> b t (f d)', f=patch_fbins, d=embed_d)
                 embeddings.append(emb)
-        # Concatenate embedding chunks in the time axis
+        # concatenate embedding chunks in the time axis
         x = torch.cat(embeddings, axis=-2)
         return x
 
@@ -476,7 +462,6 @@ class PortableM2D(torch.nn.Module):
         text_embeddings = self.text_encoder(batch_text, truncate=truncate)
         if hasattr(self.backbone, 'text_proj'):
             text_embeddings = self.backbone.text_proj(text_embeddings)
-        text_embeddings = text_embeddings.detach().cpu().to(torch.float)
         return text_embeddings
 
     def get_clap_text_encoder(self):
@@ -512,6 +497,20 @@ class GTETextEncoder(torch.nn.Module):
         return embeddings
 
 
+class GTEL15Encoder(torch.nn.Module):
+    def __init__(self, clip_weight="Alibaba-NLP/gte-large-en-v1.5"):
+        super().__init__()
+        from sentence_transformers import SentenceTransformer
+        import os
+        os.environ["TOKENIZERS_PARALLELISM"] = "true"  # To suppress warnings.
+
+        self.model = SentenceTransformer(clip_weight, trust_remote_code=True)
+
+    def __call__(self, texts, **kwargs):
+        embeddings = self.model.encode(texts, show_progress_bar=False, convert_to_tensor=True)
+        return embeddings
+
+
 class NVEmbedV2Encoder(torch.nn.Module):
     def __init__(self, clip_weight="nvidia/NV-Embed-v2"):
         # https://huggingface.co/spaces/mteb/leaderboard https://huggingface.co/nvidia/NV-Embed-v2
@@ -532,6 +531,22 @@ class NVEmbedV2Encoder(torch.nn.Module):
         texts = add_eos(texts)
         embeddings = self.model.encode(texts, batch_size=len(texts), show_progress_bar=False, convert_to_tensor=True)
         # normalize_embeddings=True
+        return embeddings
+
+
+class CLIPLTextEncoder(torch.nn.Module):
+    def __init__(self, clip_weight="ViT-L/14"):
+        super().__init__()
+        import clip
+
+        device = 'cpu'  # "cuda" if torch.cuda.is_available() else "cpu"
+        self.clip = clip
+        self.model, _ = clip.load(clip_weight, device=device)
+
+    def __call__(self, texts, truncate=True, max_length=77):
+        device = next(self.model.parameters()).device
+        tokens = self.clip.tokenize(texts, context_length=max_length, truncate=True).to(device)
+        embeddings = self.model.to(device).encode_text(tokens)
         return embeddings
 
 
@@ -568,11 +583,21 @@ def get_text_encoder(weight, text_encoder_weight=None):
         text_model = GTETextEncoder()
     if clap_type == 'B':
         text_model = BertXEncoder()
+    if clap_type == 'C':
+        text_model = CLIPLTextEncoder()
+    if clap_type == 'L':
+        text_model = GTEL15Encoder()
+    if clap_type == 'M':
+        text_model = BertXEncoder(clip_weight="google-bert/bert-large-uncased")
     if clap_type == 'N':
         text_model = NVEmbedV2Encoder()
+    if clap_type == 'Q':
+        text_model = BertXEncoder(clip_weight="FacebookAI/roberta-large")
+    if clap_type == 'R':
+        text_model = BertXEncoder(clip_weight="FacebookAI/roberta-base")
 
     if text_encoder_weight is not None:
-        weights = torch.load(text_encoder_weight, weights_only=False, map_location='cpu')
+        weights = torch.load(text_encoder_weight, map_location='cpu', weights_only=False)
         weights = weights['model']
         weights = extract_weight(weights, 'text_encoder.')
         print(f' using model.text_encoder from {text_encoder_weight}')
