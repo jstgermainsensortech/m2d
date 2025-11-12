@@ -273,11 +273,13 @@ If you find our M2D useful in your research, please consider citing our papers.
 
 ```BibTeX
 @article{niizumi2025m2d-clap,
-    author  = {Niizumi, Daisuke and Takeuchi, Daiki and Yasuda, Masahiro and Nguyen, Binh Thien and Ohishi, Yasunori and Harada, Noboru},
-    journal = {IEEE Access}, 
-    title   = {M2D-CLAP: Exploring General-purpose Audio-Language Representations Beyond CLAP}, 
-    year    = {2025},
-    pages   = {1-1},
+    author={Niizumi, Daisuke and Takeuchi, Daiki and Yasuda, Masahiro and Thien Nguyen, Binh and Ohishi, Yasunori and Harada, Noboru},
+    journal={IEEE Access}, 
+    title={M2D-CLAP: Exploring General-Purpose Audio-Language Representations Beyond CLAP}, 
+    year={2025},
+    volume={13},
+    number={},
+    pages={163313-163330},
     doi={10.1109/ACCESS.2025.3611348}}
 
 @article{niizumi2024m2dx,
