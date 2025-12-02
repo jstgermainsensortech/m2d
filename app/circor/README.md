@@ -30,13 +30,22 @@ Please refer to the following paper (arXiv link) for the details.
 
 ## 1. Setup
 
+### 1-0. Global setup
+
+Please complete the setup for M2D first.
+
+[👉️ GLOBAL SETUP, PLEASE BE SURE TO COMPLETE THESE STEPS.](https://github.com/nttcslab/m2d/tree/master?tab=readme-ov-file#1-setup)
+
+
+### 1-1. Setup for the reproduction of the paper
+
 [0-Prepare.ipynb](0-Prepare.ipynb) provides complete setup steps, including:
 - Code setup (training/test program and external evaluation code)
 - Downloading dataset from `physionet.org`
 - Format the code for our experiments
 - Integrity check for the data
 
-### 1-1. Major folders
+### 1-2. Major folders
 
 You will find the following folders after the setup.
 
