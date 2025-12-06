@@ -461,15 +461,15 @@ class RuntimeM2D(nn.Module):
 
         return loss, lms_cropped, recons, errormap, mask
 
-    def encode_clap_audio(self, batch_audio, is_lms=False):
-        if is_lms:
-            lms = self.normalize_batch(batch_audio)  # normalize LMS input
-            audio_embeddings = self.encode_lms(lms)
-        else:
-            audio_embeddings = self.forward(batch_audio)
+    def project_audio(self, audio_embeddings):
         if not hasattr(self.backbone.audio_proj, 'dont_average'):
             audio_embeddings = audio_embeddings.mean(dim=-2)
         audio_embeddings = self.backbone.audio_proj(audio_embeddings)
+        return audio_embeddings
+
+    def encode_clap_audio(self, batch_audio):
+        audio_embeddings = self.forward(batch_audio)
+        audio_embeddings = self.project_audio(audio_embeddings)
         return audio_embeddings
 
     def encode_clap_text(self, batch_text, truncate=False):
@@ -623,7 +623,11 @@ def get_text_encoder(weight, text_encoder_weight=None):
 
     if text_encoder_weight is not None:
         weights = torch.load(text_encoder_weight, map_location='cpu', weights_only=False)
-        weights = weights['model']
+        weights = weights['model'] if 'model' in weights else weights
+        if ['module.ar.runtime.' in k for k in weights]:
+            print(f' loading EVAR weight {text_encoder_weight} by removing "module.ar.runtime." from keys.')
+            renamed = {k.replace('module.ar.runtime.', ''): weights[k] for k in weights}
+            weights = renamed
         weights = extract_weight(weights, 'text_encoder.')
         print(f' using model.text_encoder from {text_encoder_weight}')
         text_model.load_state_dict(weights)

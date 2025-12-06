@@ -11,7 +11,7 @@
 
 # Masked Modeling Duo (M2D) & M2D-CLAP
 
-This repository provides demo implementations of our paper "[Masked Modeling Duo: Towards a Universal Audio Pre-training Framework](https://ieeexplore.ieee.org/document/10502167)", "[M2D-CLAP: Exploring General-purpose Audio-Language Representations Beyond CLAP](https://ieeexplore.ieee.org/document/11168481)", "[Masked Modeling Duo: Learning Representations by Encouraging Both Networks to Model the Input](https://arxiv.org/abs/2210.14648)", and so on.
+This repository provides demo implementations of our paper "[M2D-CLAP: Exploring General-purpose Audio-Language Representations Beyond CLAP](https://ieeexplore.ieee.org/document/11168481)", "[Masked Modeling Duo: Towards a Universal Audio Pre-training Framework](https://ieeexplore.ieee.org/document/10502167)", and so on.
 
 ## Quick Start
 
