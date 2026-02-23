@@ -17,7 +17,7 @@ This sub-repository provides application examples in a realistic setting describ
 We applied the pre-trained models to respiratory sound tasks. While usually we fine-tune these models, we also further pre-train models on the application data that enhances the final performance (the step 2 below). The example contains data and test environmental setup, further pre-training steps, and fine-tuning steps.
 
 <figure>
-  <img src="../../image-M2D-further-PT.svg" alt="An shcematic illustration of M2D-X further pre-training", width="30%">
+  <img src="../../examples/image-M2D-further-PT.svg" alt="An schematic illustration of M2D-X further pre-training", width="30%">
 </figure>
 
 Notably, the example follows the test setup compatible with previous studies, enabling comparison with SOTA. In addition, it runs on a smaller GPU RTX3090Ti (24GB).
@@ -201,7 +201,7 @@ The command lines for reproduction follows.
 
 #### Further pre-training
 
-We explain the details in the [Guide_app.md](Guide_app.md).
+We explain the details in the [Guide_app.md](../Guide_app.md).
 
 ```sh
 # M2D-X, noise_ratio 0.3

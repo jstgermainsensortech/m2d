@@ -1,5 +1,5 @@
 --- _org/train_audio.py	2023-07-07 10:22:30.225586716 +0900
-+++ train_audio.py	2025-07-04 15:07:27.764455718 +0900
++++ train_audio.py	2026-01-26 15:02:27.199236431 +0900
 @@ -1,3 +1,9 @@
 +"""Masked Modeling Duo (M2D) Pre-training Script V2
 +
@@ -10,7 +10,7 @@
  # Copyright (c) Meta Platforms, Inc. and affiliates.
  # All rights reserved.
  
-@@ -15,69 +21,105 @@
+@@ -15,69 +21,117 @@
  import os
  import time
  from pathlib import Path
@@ -73,6 +73,18 @@
 -    parser.add_argument('--mask_ratio', default=0.75, type=float,
 +    parser.add_argument('--mask_ratio', default=0.7, type=float,
                          help='Masking ratio (percentage of removed patches).')
++    parser.add_argument('--weighted_mask', action='store_true',
++                        help='Use weighted masking based on data contents.')
++    parser.add_argument('--var_weighted_mask', action='store_true',
++                        help='Use weighted masking (var) based on data contents.')
++    parser.add_argument('--block_mask', action='store_true',
++                        help='Use block masking from data2vec 2.0.')
++    parser.add_argument('--obj_cent_mask', action='store_true',
++                        help='Use object centric masking based on data contents.')
++    parser.add_argument('--masking_hint_k', default=2, type=int)
++    parser.add_argument('--masking_start_epoch', default=50, type=int)
++    parser.add_argument('--abs_hint_ratio', default=-1.0, type=float)  # set value >= 0.0 to enable absolute hint ratio
++
 +    parser.add_argument('--ema_decay_init', default=0.99995, type=float,
 +                        help='Initial EMA decay parameter.')
 +    parser.add_argument('--ema_decay', default=0.99999, type=float,
@@ -139,7 +151,7 @@
                          help='path where to tensorboard log')
      parser.add_argument('--device', default='cuda',
                          help='device to use for training / testing')
-@@ -87,7 +129,9 @@
+@@ -87,7 +141,9 @@
  
      parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
                          help='start epoch')
@@ -150,7 +162,7 @@
      parser.add_argument('--pin_mem', action='store_true',
                          help='Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.')
      parser.add_argument('--no_pin_mem', action='store_false', dest='pin_mem')
-@@ -96,7 +140,7 @@
+@@ -96,7 +152,7 @@
      # distributed training parameters
      parser.add_argument('--world_size', default=1, type=int,
                          help='number of distributed processes')
@@ -159,7 +171,7 @@
      parser.add_argument('--dist_on_itp', action='store_true')
      parser.add_argument('--dist_url', default='env://',
                          help='url used to set up distributed training')
-@@ -104,9 +148,38 @@
+@@ -104,9 +160,38 @@
      return parser
  
  
@@ -200,7 +212,7 @@
      print('job dir: {}'.format(os.path.dirname(os.path.realpath(__file__))))
      print("{}".format(args).replace(', ', ',\n'))
  
-@@ -119,14 +192,21 @@
+@@ -119,14 +204,21 @@
  
      cudnn.benchmark = True
  
@@ -217,7 +229,7 @@
 +
 +    if args.teacher == '':
 +        teacher_model, off_emb_dim = None, 3840
-+        assert args.loss_off == 0.0, f'Missing --teacher while --loss_off > 0.'
++        print(f' ** No teacher with loss_off=={args.loss_off} > 0. **')
 +    else:
 +        print(f' ** M2D-X **')
 +        teacher_model = RuntimeM2D(weight_file=args.teacher)
@@ -230,7 +242,7 @@
  
      if True:  # args.distributed:
          num_tasks = misc.get_world_size()
-@@ -143,6 +223,8 @@
+@@ -143,6 +235,8 @@
          log_writer = SummaryWriter(log_dir=args.log_dir)
      else:
          log_writer = None
@@ -239,7 +251,7 @@
  
      data_loader_train = torch.utils.data.DataLoader(
          dataset_train, sampler=sampler_train,
-@@ -151,53 +233,86 @@
+@@ -151,53 +245,104 @@
          pin_memory=args.pin_mem,
          drop_last=True,
      )
@@ -257,8 +269,21 @@
 -    model = models_mae.__dict__[args.model](norm_pix_loss=args.norm_pix_loss)
 +    model = models_mae.__dict__[args.model](img_size=args.input_size, patch_size=args.patch_size, decoder_depth=args.decoder_depth,
 +        norm_pix_loss=args.norm_pix_loss, loss_type=args.loss_fn, target_layers=args.target_layers, loss_m2d=args.loss_m2d, loss_off=args.loss_off,
-+        off_emb_dim=off_emb_dim, norm_stats=dataset_train.norm_stats)
++        off_emb_dim=off_emb_dim, norm_stats=dataset_train.norm_stats, world_rank=[num_tasks, global_rank])
 +
++    if args.weighted_mask:
++        assert (args.cont_mask == 0) and (not args.var_weighted_mask) and (not args.obj_cent_mask), "Masking options conflict."
++        model.set_random_weighted_mask_with_hint()
++    if args.var_weighted_mask:
++        assert (args.cont_mask == 0) and (not args.weighted_mask) and (not args.obj_cent_mask), "Masking options conflict."
++        model.set_random_weighted_mask_var_with_hint()
++    if args.obj_cent_mask:
++        assert (args.cont_mask == 0) and (not args.weighted_mask) and (not args.var_weighted_mask), "Masking options conflict."
++        if args.masking_start_epoch == 0:
++            print(f"⚠️  Warning: Too early to start object centric masking.")
++        model.set_object_centric_mask_with_hint()
++    if args.block_mask:
++        model.set_data2vec2_block_masking()
 +    if args.cont_mask > 0:
 +        model.set_random_1d_mask(args.cont_mask)
  
@@ -314,6 +339,11 @@
              data_loader_train.sampler.set_epoch(epoch)
 -        train_stats = train_one_epoch(
 -            model, data_loader_train,
++        if args.weighted_mask or args.var_weighted_mask or args.block_mask or args.obj_cent_mask:
++            if args.abs_hint_ratio < 0.0:
++                model_without_ddp.set_hint_ratio_by_epoch(cur_epoch=epoch, total_epochs=args.epochs, start_epoch=args.masking_start_epoch, k=args.masking_hint_k)
++            else:
++                model_without_ddp.set_hint_ratio(args.abs_hint_ratio)
 +        train_stats = train_one_epoch_m2dx(
 +            model, teacher_model, data_loader_train,
              optimizer, device, epoch, loss_scaler,
@@ -340,7 +370,7 @@
  
          log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          'epoch': epoch,}
-@@ -207,15 +322,73 @@
+@@ -207,15 +352,80 @@
                  log_writer.flush()
              with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
                  f.write(json.dumps(log_stats) + "\n")
@@ -384,6 +414,13 @@
 +    'noise_ratio': (0.0, 'nr', 'z'),
 +    'min_ds_size': (10000, 'dn', 'asis'),
 +    'cont_mask': (0, 'C', 'asis'),
++    'weighted_mask': (False, 'Wm', 'b'),
++    'var_weighted_mask': (False, 'Vm', 'b'),
++    'block_mask': (False, 'Bm', 'b'),
++    'obj_cent_mask': (False, 'Om', 'b'),
++    'masking_hint_k': [2, 'k', 'asis'],
++    'masking_start_epoch': [50, 'i', 'asis'],
++    'abs_hint_ratio': [-1.0, 'a', 'asis'],
 +    'epochs': (0, '-e', 'asis'),
 +}
  
@@ -418,7 +455,7 @@
 +    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
      main(args)
 --- _org/clap/train_clap.py	2024-06-04 08:28:27.348036827 +0900
-+++ clap/train_clap.py	2025-09-22 10:52:22.294673621 +0900
++++ clap/train_clap.py	2026-01-26 15:02:38.459294984 +0900
 @@ -1,3 +1,12 @@
 +"""M2D-CLAP Pre-training Script for Stage 1
 +
@@ -432,7 +469,7 @@
  # Copyright (c) Meta Platforms, Inc. and affiliates.
  # All rights reserved.
  
-@@ -15,79 +24,238 @@
+@@ -15,79 +24,250 @@
  import os
  import time
  from pathlib import Path
@@ -610,6 +647,18 @@
 -    parser.add_argument('--mask_ratio', default=0.75, type=float,
 +    parser.add_argument('--mask_ratio', default=0.7, type=float,
                          help='Masking ratio (percentage of removed patches).')
++    parser.add_argument('--weighted_mask', action='store_true',
++                        help='Use weighted masking based on data contents.')
++    parser.add_argument('--var_weighted_mask', action='store_true',
++                        help='Use weighted masking (var) based on data contents.')
++    parser.add_argument('--block_mask', action='store_true',
++                        help='Use block masking from data2vec 2.0.')
++    parser.add_argument('--obj_cent_mask', action='store_true',
++                        help='Use object centric masking based on data contents.')
++    parser.add_argument('--masking_hint_k', default=2, type=int)
++    parser.add_argument('--masking_start_epoch', default=50, type=int)
++    parser.add_argument('--abs_hint_ratio', default=-1.0, type=float)  # set value >= 0.0 to enable absolute hint ratio
++
 +    parser.add_argument('--ema_decay_init', default=0.99995, type=float,
 +                        help='Initial EMA decay parameter.')
 +    parser.add_argument('--ema_decay', default=0.99999, type=float,
@@ -696,7 +745,7 @@
      parser.add_argument('--pin_mem', action='store_true',
                          help='Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.')
      parser.add_argument('--no_pin_mem', action='store_false', dest='pin_mem')
-@@ -96,7 +264,7 @@
+@@ -96,7 +276,7 @@
      # distributed training parameters
      parser.add_argument('--world_size', default=1, type=int,
                          help='number of distributed processes')
@@ -705,7 +754,7 @@
      parser.add_argument('--dist_on_itp', action='store_true')
      parser.add_argument('--dist_url', default='env://',
                          help='url used to set up distributed training')
-@@ -104,9 +272,50 @@
+@@ -104,9 +284,50 @@
      return parser
  
  
@@ -758,7 +807,7 @@
      print('job dir: {}'.format(os.path.dirname(os.path.realpath(__file__))))
      print("{}".format(args).replace(', ', ',\n'))
  
-@@ -119,14 +328,8 @@
+@@ -119,14 +340,8 @@
  
      cudnn.benchmark = True
  
@@ -775,7 +824,7 @@
  
      if True:  # args.distributed:
          num_tasks = misc.get_world_size()
-@@ -143,6 +346,8 @@
+@@ -143,6 +358,8 @@
          log_writer = SummaryWriter(log_dir=args.log_dir)
      else:
          log_writer = None
@@ -784,7 +833,7 @@
  
      data_loader_train = torch.utils.data.DataLoader(
          dataset_train, sampler=sampler_train,
-@@ -151,53 +356,86 @@
+@@ -151,53 +368,104 @@
          pin_memory=args.pin_mem,
          drop_last=True,
      )
@@ -802,8 +851,21 @@
 -    model = models_mae.__dict__[args.model](norm_pix_loss=args.norm_pix_loss)
 +    model = models_mae.__dict__[args.model](img_size=args.input_size, patch_size=args.patch_size, decoder_depth=args.decoder_depth,
 +        norm_pix_loss=args.norm_pix_loss, loss_type=args.loss_fn, target_layers=args.target_layers, loss_m2d=args.loss_m2d, loss_off=args.loss_off, norm_stats=dataset_train.norm_stats,
-+        off_emb_dim=dataset_train.caption_dim, clip_args=[global_rank, num_tasks], sem_mode=args.sem_mode)
++        off_emb_dim=dataset_train.caption_dim, world_rank=[num_tasks, global_rank], sem_mode=args.sem_mode)
 +
++    if args.weighted_mask:
++        assert (args.cont_mask == 0) and (not args.var_weighted_mask) and (not args.obj_cent_mask), "Masking options conflict."
++        model.set_random_weighted_mask_with_hint()
++    if args.var_weighted_mask:
++        assert (args.cont_mask == 0) and (not args.weighted_mask) and (not args.obj_cent_mask), "Masking options conflict."
++        model.set_random_weighted_mask_var_with_hint()
++    if args.obj_cent_mask:
++        assert (args.cont_mask == 0) and (not args.weighted_mask) and (not args.var_weighted_mask), "Masking options conflict."
++        if args.masking_start_epoch == 0:
++            print(f"⚠️  Warning: Too early to start object centric masking.")
++        model.set_object_centric_mask_with_hint()
++    if args.block_mask:
++        model.set_data2vec2_block_masking()
 +    if args.cont_mask > 0:
 +        model.set_random_1d_mask(args.cont_mask)
  
@@ -859,6 +921,11 @@
              data_loader_train.sampler.set_epoch(epoch)
 -        train_stats = train_one_epoch(
 -            model, data_loader_train,
++        if args.weighted_mask or args.var_weighted_mask or args.block_mask or args.obj_cent_mask:
++            if args.abs_hint_ratio < 0.0:
++                model_without_ddp.set_hint_ratio_by_epoch(cur_epoch=epoch, total_epochs=args.epochs, start_epoch=args.masking_start_epoch, k=args.masking_hint_k)
++            else:
++                model_without_ddp.set_hint_ratio(args.abs_hint_ratio)
 +        train_stats = train_one_epoch_m2dx(
 +            model, None, data_loader_train,
              optimizer, device, epoch, loss_scaler,
@@ -885,7 +952,7 @@
  
          log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          'epoch': epoch,}
-@@ -207,15 +445,84 @@
+@@ -207,15 +475,91 @@
                  log_writer.flush()
              with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
                  f.write(json.dumps(log_stats) + "\n")
@@ -939,6 +1006,13 @@
 +    'noise_ratio': (0.0, 'nr', 'z'),
 +    'min_ds_size': (10000, 'dn', 'asis'),
 +    'cont_mask': (0, 'C', 'asis'),
++    'weighted_mask': (False, 'Wm', 'b'),
++    'var_weighted_mask': (False, 'Vm', 'b'),
++    'block_mask': (False, 'Bm', 'b'),
++    'obj_cent_mask': (False, 'Om', 'b'),
++    'masking_hint_k': [2, 'k', 'asis'],
++    'masking_start_epoch': [50, 'i', 'asis'],
++    'abs_hint_ratio': [-1.0, 'a', 'asis'],
 +    'sem_mode': (1, 'S', 'asis'),
 +    'epochs': (0, '-e', 'asis'),
 +}
@@ -974,8 +1048,8 @@
 +    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
      main(args)
 --- _org/clap/clap_only.py	2025-09-22 23:39:11.716392388 +0900
-+++ clap/clap_only.py	2025-09-22 11:25:39.561580241 +0900
-@@ -1,93 +1,234 @@
++++ clap/clap_only.py	2026-02-21 06:38:05.439452653 +0900
+@@ -1,93 +1,235 @@
 -# Copyright (c) Meta Platforms, Inc. and affiliates.
 -# All rights reserved.
 +"""M2D-CLAP Pre-training Script for Stages 2 and 2.1
@@ -1018,8 +1092,8 @@
 +import matplotlib.pyplot as plt
  
 -assert timm.__version__ == "0.3.2"  # version check
--import timm.optim.optim_factory as optim_factory
 +import timm.optim
+ import timm.optim.optim_factory as optim_factory
  
  import util.misc as misc
  from util.misc import NativeScalerWithGradNormCount as NativeScaler
@@ -1147,7 +1221,7 @@
 +    --eval_after 30
 +    --save_freq 30
 +    --data_path /path/to/my_data_lms
-+    --csv_main data/files_A_S_V_S_W_C_X.csv
++    --csv_main data/files_A_S_V_S_W_C_A_C_X_t_E_U.csv
 +    --mask_ratio 0.0  # 0.0 for stage 2.1, 0.3 for stage 2
 +    --base_model m2d_clap_vit_base-80x1001p16x16p16kpN-2025-stage1.1/weights_ep66it3124-0.49058_loss0.0147.pth
 +    --text_encoder B
@@ -1250,7 +1324,7 @@
      parser.add_argument('--pin_mem', action='store_true',
                          help='Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.')
      parser.add_argument('--no_pin_mem', action='store_false', dest='pin_mem')
-@@ -96,7 +237,7 @@
+@@ -96,7 +238,7 @@
      # distributed training parameters
      parser.add_argument('--world_size', default=1, type=int,
                          help='number of distributed processes')
@@ -1259,7 +1333,7 @@
      parser.add_argument('--dist_on_itp', action='store_true')
      parser.add_argument('--dist_url', default='env://',
                          help='url used to set up distributed training')
-@@ -104,11 +245,105 @@
+@@ -104,11 +246,105 @@
      return parser
  
  
@@ -1368,7 +1442,7 @@
  
      device = torch.device(args.device)
  
-@@ -119,31 +354,53 @@
+@@ -119,31 +355,53 @@
  
      cudnn.benchmark = True
  
@@ -1440,7 +1514,7 @@
      data_loader_train = torch.utils.data.DataLoader(
          dataset_train, sampler=sampler_train,
          batch_size=args.batch_size,
-@@ -151,53 +408,79 @@
+@@ -151,53 +409,79 @@
          pin_memory=args.pin_mem,
          drop_last=True,
      )
@@ -1482,10 +1556,10 @@
 -    param_groups = optim_factory.add_weight_decay(model_without_ddp, args.weight_decay)
 -    optimizer = torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
 +    try:
-+        param_groups = timm.optim.optim_factory.add_weight_decay(model_without_ddp, args.weight_decay)
++        param_groups = optim_factory.add_weight_decay(model_without_ddp, args.weight_decay)
 +    except:
 +        print(' (for compatibility with timm) Switched add_weight_decay() to param_groups_weight_decay()')
-+        param_groups = timm.optim.optim_factory.param_groups_weight_decay(model_without_ddp, args.weight_decay)
++        param_groups = timm.optim.param_groups_weight_decay(model_without_ddp, args.weight_decay)
 +    optimizer = get_optim(args, param_groups)
      print(optimizer)
      loss_scaler = NativeScaler()
@@ -1541,7 +1615,7 @@
  
          log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          'epoch': epoch,}
-@@ -207,15 +490,82 @@
+@@ -207,15 +491,82 @@
                  log_writer.flush()
              with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
                  f.write(json.dumps(log_stats) + "\n")
@@ -2537,7 +2611,7 @@
                  loss_scaler.load_state_dict(checkpoint['scaler'])
              print("With optim & sched!")
 --- _org/m2d/engine_pretrain_m2d.py	2023-07-07 10:22:30.217586685 +0900
-+++ m2d/engine_pretrain_m2d.py	2024-10-04 08:20:42.309295518 +0900
++++ m2d/engine_pretrain_m2d.py	2026-02-21 09:27:52.857061385 +0900
 @@ -16,12 +16,156 @@
  
  import util.misc as misc
@@ -2594,7 +2668,7 @@
  
  def train_one_epoch(model: torch.nn.Module,
                      data_loader: Iterable, optimizer: torch.optim.Optimizer,
-+                    device: torch.device, epoch: int, loss_scaler, ema_shceduler,
++                    device: torch.device, epoch: int, loss_scaler, ema_scheduler,
 +                    log_writer=None,
 +                    val_loader: Iterable=None,
 +                    do_analysis: bool=False,
@@ -2649,7 +2723,7 @@
 +
 +        # Update target network
 +        global_step = len(data_loader) * epoch + data_iter_step
-+        ema_decay = ema_shceduler(global_step)
++        ema_decay = ema_scheduler(global_step)
 +        if is_update_grad:
 +            _model = model if hasattr(model, 'update_target_network') else model.module
 +            _model.update_target_network(ema_decay)
@@ -2758,7 +2832,7 @@
 +
 +def train_one_epoch_m2dx(model: torch.nn.Module, teacher_model: torch.nn.Module,
 +                    data_loader: Iterable, optimizer: torch.optim.Optimizer,
-+                    device: torch.device, epoch: int, loss_scaler, ema_shceduler,
++                    device: torch.device, epoch: int, loss_scaler, ema_scheduler,
 +                    log_writer=None,
 +                    val_loader: Iterable=None,
 +                    do_analysis: bool=False,
@@ -2818,10 +2892,10 @@
 +
 +        # Update target network
 +        global_step = len(data_loader) * epoch + data_iter_step
-+        ema_decay = ema_shceduler(global_step)
++        ema_decay = ema_scheduler(global_step)
 +        if is_update_grad:
 +            _model.update_target_network(ema_decay)
-+            # Clip logit scale if a CLAP model own it
++            # Clip logit scale if a CLAP model owns it
 +            _clip_logit_scale = getattr(_model, "clip_logit_scale", None)
 +            if callable(_clip_logit_scale):
 +                _clip_logit_scale()
@@ -2889,8 +2963,8 @@
 \ ファイル末尾に改行がありません
 +    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 --- _org/m2d/models_mae.py	2023-07-07 10:22:30.217586685 +0900
-+++ m2d/models_mae.py	2025-09-22 05:57:37.166906737 +0900
-@@ -9,14 +9,111 @@
++++ m2d/models_mae.py	2026-02-21 08:21:56.724331273 +0900
+@@ -9,14 +9,55 @@
  # DeiT: https://github.com/facebookresearch/deit
  # --------------------------------------------------------
  
@@ -2902,11 +2976,12 @@
  import torch
  import torch.nn as nn
 +from torch.nn import functional as F
++from torch import distributed as dist
 +import numpy as np
  
 -from timm.models.vision_transformer import PatchEmbed, Block
 +import timm
-+from timm.models.vision_transformer import Block
++from timm.models.vision_transformer import Block, Mlp, SwiGLU
  
 -from util.pos_embed import get_2d_sincos_pos_embed
 +from pos_embed import get_2d_sincos_pos_embed
@@ -2942,74 +3017,17 @@
 +        return x
 +
 +
-+def random_unstructured_mask(shape, mask_ratio, device):
-+    B, F, T = shape # Batch, Freq bins, and Time frames; equivalent to Batch, Height, and Width for the image.
-+    L = F * T
-+    len_keep = int(L * (1 - mask_ratio))
-+    noise = torch.rand(B, L, device=device)  # noise in [0, 1]
-+    # sort noise for each sample
-+    ids_shuffle = torch.argsort(noise, dim=1)  # ascend: small is keep, large is remove
-+    return ids_shuffle, len_keep
-+
-+
-+def random_structured_mask(shape, mask_ratio, device):
-+    """Random structured masking for training in audio tasks."""
-+    B, F, T = shape
-+
-+    # We want true random freq/time masking but need to make the number of masks consistent among samples.
-+    # We impose a constraint that the number of freq/time masks be consistent across samples while leaving it open where we mask.
-+    NF = int(F * (mask_ratio + 1./F) * np.random.rand())
-+    NF = min(F - 1, NF) # prevent to mask all freq. bins.
-+    mask_ratio = max(mask_ratio + (.5/T) - (NF/F), 0.)
-+    NT = int(T*mask_ratio)
-+
-+    # Make mask for each batch sample.
-+    mask = torch.zeros((B, F, T), dtype=torch.int, device=device)
-+    for b in range(B):
-+        mask[b, torch.randperm(F)[:NF]] = 1
-+    for b in range(B):
-+        mask[b, :, torch.randperm(T)[:NT]] = 1
-+
-+    ids_shuffle = torch.argsort(mask.view(B, -1), descending=True)
-+    len_keep = (mask[0] == 0).sum()
-+    # print(len_keep, mask[:2])
-+    return ids_shuffle, len_keep
-+
-+
-+def make_one_1dmask(total_frames=800//2, mask_ratio=0.6, one_mask_frames=20):
-+    M = int(total_frames * mask_ratio)
-+    mask = np.zeros(total_frames, dtype=np.int8)
-+    # Mask frames more than M, number of frames to mask.
-+    while mask.sum() < M:
-+        i = np.random.randint(low=0, high=total_frames)
-+        mask[i:i+one_mask_frames] = 1
-+    # Unmask frames from the tail to adjust total masked frames to M.
-+    n_unmask = mask.sum() - M
-+    if n_unmask > 0:
-+        j_unmask = np.where(mask == 1)[0][-n_unmask:]
-+        mask[j_unmask] = 0
-+    return mask
-+
-+def random_1d_mask(shape, mask_ratio=0.6, device='cuda', one_mask_frames=20//2):
-+    B, F, T = shape
-+    mask = np.zeros((B, T), dtype=np.int8)
-+    for i in range(B):
-+        mask[i] = make_one_1dmask(total_frames=T, mask_ratio=mask_ratio, one_mask_frames=one_mask_frames)
-+    mask = np.tile(mask, (1, F))
-+    mask = torch.tensor(mask).to(device)
-+
-+    ids_shuffle = torch.argsort(mask.view(B, -1), dim=1)
-+    len_keep = (mask[0] == 0).sum()
-+    return ids_shuffle, len_keep
++from .masking import (data2vec2_block_masking_wrapper, random_unstructured_mask, object_centric_mask_with_hint,
++    random_weighted_mask_with_hint, random_weighted_mask_var_with_hint, determ_weighted_mask_with_hint, random_structured_mask, random_1d_mask)
  
  
  class MaskedAutoencoderViT(nn.Module):
-@@ -25,8 +122,11 @@
+@@ -25,8 +66,11 @@
      def __init__(self, img_size=224, patch_size=16, in_chans=3,
                   embed_dim=1024, depth=24, num_heads=16,
                   decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
 -                 mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False):
-+                 mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False, norm_stats=None):
++                 mlp_ratio=4., mlp_layer=Mlp, norm_layer=nn.LayerNorm, norm_pix_loss=False, norm_stats=None):
          super().__init__()
 +        self.in_chans = in_chans
 +        img_size, patch_size = expand_size(img_size), expand_size(patch_size)
@@ -3017,21 +3035,21 @@
  
          # --------------------------------------------------------------------------
          # MAE encoder specifics
-@@ -37,7 +137,7 @@
+@@ -37,7 +81,7 @@
          self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim), requires_grad=False)  # fixed sin-cos embedding
  
          self.blocks = nn.ModuleList([
 -            Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer)
-+            Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, norm_layer=norm_layer)
++            Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, norm_layer=norm_layer, mlp_layer=mlp_layer)
              for i in range(depth)])
          self.norm = norm_layer(embed_dim)
          # --------------------------------------------------------------------------
-@@ -51,24 +151,54 @@
+@@ -51,24 +95,75 @@
          self.decoder_pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, decoder_embed_dim), requires_grad=False)  # fixed sin-cos embedding
  
          self.decoder_blocks = nn.ModuleList([
 -            Block(decoder_embed_dim, decoder_num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer)
-+            Block(decoder_embed_dim, decoder_num_heads, mlp_ratio, qkv_bias=True, norm_layer=norm_layer)
++            Block(decoder_embed_dim, decoder_num_heads, mlp_ratio, qkv_bias=True, norm_layer=norm_layer, mlp_layer=mlp_layer)
              for i in range(decoder_depth)])
  
          self.decoder_norm = norm_layer(decoder_embed_dim)
@@ -3049,6 +3067,27 @@
          self.initialize_weights()
  
 +        self._random_mask_fn = random_unstructured_mask
++        self.set_hint_ratio(1.0)
++
++    def set_data2vec2_block_masking(self):
++        print('using data2vec2_block_masking().')
++        self._random_mask_fn = data2vec2_block_masking_wrapper
++
++    def set_object_centric_mask_with_hint(self):
++        print('using object_centric_masking_hint().')
++        self._random_mask_fn = object_centric_mask_with_hint
++
++    def set_random_weighted_mask_with_hint(self):
++        print('using random_weighted_mask_with_hint().')
++        self._random_mask_fn = random_weighted_mask_with_hint
++
++    def set_random_weighted_mask_var_with_hint(self):
++        print('using random_weighted_mask_var_with_hint().')
++        self._random_mask_fn = random_weighted_mask_var_with_hint
++
++    def set_determ_weighted_mask_with_hint(self):
++        print('using determ_weighted_mask_with_hint().')
++        self._random_mask_fn = determ_weighted_mask_with_hint
 +
 +    def set_random_structured_mask(self):
 +        print('using random_structured_mask().')
@@ -3085,7 +3124,7 @@
          self.decoder_pos_embed.data.copy_(torch.from_numpy(decoder_pos_embed).float().unsqueeze(0))
  
          # initialize patch_embed like nn.Linear (instead of nn.Conv2d)
-@@ -94,46 +224,63 @@
+@@ -94,46 +189,78 @@
  
      def patchify(self, imgs):
          """
@@ -3128,7 +3167,20 @@
          return imgs
  
 -    def random_masking(self, x, mask_ratio):
-+    def random_masking(self, x, mask_ratio, adjust_short=False):
++    def set_hint_ratio_by_epoch(self, cur_epoch, total_epochs=300, start_epoch=0, k=2):
++        """Compute hint ratio h based on current epoch and total epochs.
++        h = 1.0 - (cur_epoch / total_epochs) ** 2
++        https://arxiv.org/pdf/2206.10207
++        """
++        ratio = 1.0 - (cur_epoch / total_epochs) ** k if cur_epoch >= start_epoch else 1.0
++        self.set_hint_ratio(ratio)
++    def set_hint_ratio(self, hint_ratio):
++        self.hint_ratio_value = hint_ratio
++        print(f'Set masking hint ratio to {self.hint_ratio_value:.4f}.')
++    def hint_ratio(self):
++        return self.hint_ratio_value
++
++    def random_masking(self, x, mask_ratio, adjust_short=False, raw_input=None):
          """
          Perform per-sample random masking by per-sample shuffling.
          Per-sample shuffling is done by argsort random noise.
@@ -3166,19 +3218,22 @@
 +            if adjust_short and L < HorF * WorT:
 +                # audio: shorten pos_embed for a short input
 +                WorT = L // HorF
-+            ids_shuffle, len_keep = self._random_mask_fn((N, HorF, WorT), mask_ratio, x.device)
++            ids_shuffle, len_keep = self._random_mask_fn((N, HorF, WorT), mask_ratio, x.device,
++                                                         data=raw_input, patch_size=self.patch_size(),
++                                                         hint_ratio=self.hint_ratio(), model=self)
 +            ids_restore = torch.argsort(ids_shuffle, dim=1)
  
          # keep the first subset
          ids_keep = ids_shuffle[:, :len_keep]
-@@ -147,15 +294,22 @@
+@@ -147,15 +274,22 @@
  
          return x_masked, mask, ids_restore
  
 -    def forward_encoder(self, x, mask_ratio):
-+    def forward_encoder(self, x, mask_ratio, return_layers=False, adjust_short=False):
++    def forward_encoder(self, org_x, mask_ratio, return_layers=False, adjust_short=False):
          # embed patches
-         x = self.patch_embed(x)
+-        x = self.patch_embed(x)
++        x = self.patch_embed(org_x)
  
          # add pos embed w/o cls token
 -        x = x + self.pos_embed[:, 1:, :]
@@ -3193,11 +3248,11 @@
  
          # masking: length -> length * mask_ratio
 -        x, mask, ids_restore = self.random_masking(x, mask_ratio)
-+        x, mask, ids_restore = self.random_masking(x, mask_ratio, adjust_short=adjust_short)
++        x, mask, ids_restore = self.random_masking(x, mask_ratio, adjust_short=adjust_short, raw_input=org_x)
  
          # append cls token
          cls_token = self.cls_token + self.pos_embed[:, :1, :]
-@@ -163,12 +317,31 @@
+@@ -163,12 +297,31 @@
          x = torch.cat((cls_tokens, x), dim=1)
  
          # apply Transformer blocks
@@ -3229,7 +3284,7 @@
      def forward_decoder(self, x, ids_restore):
          # embed tokens
          x = self.decoder_embed(x)
-@@ -197,8 +370,8 @@
+@@ -197,8 +350,8 @@
  
      def forward_loss(self, imgs, pred, mask):
          """
@@ -3240,7 +3295,7 @@
          mask: [N, L], 0 is keep, 1 is remove, 
          """
          target = self.patchify(imgs)
-@@ -208,6 +381,9 @@
+@@ -208,6 +361,9 @@
              target = (target - mean) / (var + 1.e-6)**.5
  
          loss = (pred - target) ** 2
@@ -3250,7 +3305,7 @@
          loss = loss.mean(dim=-1)  # [N, L], mean loss per patch
  
          loss = (loss * mask).sum() / mask.sum()  # mean loss on removed patches
-@@ -219,6 +395,17 @@
+@@ -219,6 +375,17 @@
          loss = self.forward_loss(imgs, pred, mask)
          return loss, pred, mask
  
@@ -3268,7 +3323,7 @@
  
  def mae_vit_base_patch16_dec512d8b(**kwargs):
      model = MaskedAutoencoderViT(
-@@ -248,3 +435,889 @@
+@@ -248,3 +415,950 @@
  mae_vit_base_patch16 = mae_vit_base_patch16_dec512d8b  # decoder: 512 dim, 8 blocks
  mae_vit_large_patch16 = mae_vit_large_patch16_dec512d8b  # decoder: 512 dim, 8 blocks
  mae_vit_huge_patch14 = mae_vit_huge_patch14_dec512d8b  # decoder: 512 dim, 8 blocks
@@ -3292,6 +3347,95 @@
 +
 +
 +# Masked Modeling Duo (M2D)
++def gather_features(set_of_features, rank=0, world_size=1):
++    # Simplified version from: https://github.com/mlfoundations/open_clip/blob/main/src/open_clip/loss.py#L66
++    def gather_features_one(features):
++        gathered_features = [torch.zeros_like(features) for _ in range(world_size)]
++        dist.all_gather(gathered_features, features)
++
++        # ensure grads for local rank when all_* features don't have a gradient
++        gathered_features[rank] = features
++
++        all_features = torch.cat(gathered_features, dim=0)
++        return all_features
++
++    all_features = [gather_features_one(features) for features in set_of_features]
++
++    return all_features
++
++
++class ClipLoss(nn.Module):
++    # Simplified version from: https://github.com/mlfoundations/open_clip/blob/main/src/open_clip/loss.py#L66
++    def __init__(
++            self,
++            rank=0,
++            world_size=1,
++    ):
++        super().__init__()
++        self.rank = rank
++        self.world_size = world_size
++        print(f' ClipLoss with rank={rank}, world_size={world_size}')
++
++    def get_ground_truth(self, device, num_logits) -> torch.Tensor:
++        # calculated ground-truth and cache if enabled
++        labels = torch.arange(num_logits, device=device, dtype=torch.long)
++        return labels
++
++    def get_logits(self, image_features, text_features, logit_scale):
++        image_features = F.normalize(image_features, dim=-1, p=2)
++        text_features = F.normalize(text_features, dim=-1, p=2)
++
++        if self.world_size > 1:
++            all_image_features, all_text_features = gather_features(
++                [image_features, text_features],
++                rank=self.rank, world_size=self.world_size)
++
++            logits_per_image = logit_scale * all_image_features @ all_text_features.T
++            logits_per_text = logits_per_image.T
++        else:
++            logits_per_image = logit_scale * image_features @ text_features.T
++            logits_per_text = logit_scale * text_features @ image_features.T
++
++        return logits_per_image, logits_per_text
++
++    def forward(self, image_features, text_features, logit_scale=None):
++        logit_scale = (1 / 0.07) if logit_scale is None else logit_scale  # the initial value used in CLIP
++        device = image_features.device
++        logits_per_image, logits_per_text = self.get_logits(image_features, text_features, logit_scale)
++        labels = self.get_ground_truth(device, logits_per_image.shape[0])
++        total_loss = (F.cross_entropy(logits_per_image, labels) + F.cross_entropy(logits_per_text, labels)) / 2
++        total_loss = total_loss
++
++        return total_loss
++
++
++def info_nce_mi(clip_loss_fn, z1, z2):
++    """ Estimate MI based on the InfoNCE loss, as in Oord et al., "Representation Learning with Contrastive Predictive Coding" """
++    info_nce_loss = clip_loss_fn(z1, z2)
++    effective_batch_size = z1.shape[0] * clip_loss_fn.world_size
++    mi_lower_bound = torch.log(torch.tensor(effective_batch_size, device=info_nce_loss.device)) - info_nce_loss
++    return mi_lower_bound
++
++
++def shared_dim_participation_ratio(z1, z2, eps=1e-12):
++    """ Compute the shared dimension participation ratio between two representations."""
++    # center
++    z1c = z1 - z1.mean(dim=0, keepdim=True)
++    z2c = z2 - z2.mean(dim=0, keepdim=True)
++
++    # cross-covariance
++    B = z1.shape[0]
++    C = z1c.T @ z2c / (B - 1)
++
++    # singular values
++    S = torch.linalg.svdvals(C.to(torch.float32))
++
++    # participation ratio
++    num = (S**2).sum()**2
++    den = (S**4).sum() + eps
++
++    return (num / den).to(z1.dtype)
++
 +
 +def set_requires_grad(model, val):
 +    for p in model.parameters():
@@ -3314,23 +3458,25 @@
 +    def __init__(self, img_size=224, patch_size=16, in_chans=3,
 +                 embed_dim=1024, depth=24, num_heads=16,
 +                 decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
-+                 mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False, norm_stats=None,
-+                 loss_type='norm_mse', target_layers=None, **kwargs):
++                 mlp_ratio=4., mlp_layer=Mlp, norm_layer=nn.LayerNorm, norm_pix_loss=False, norm_stats=None,
++                 loss_type='norm_mse', target_layers=None, world_rank=None, **kwargs):
 +        super().__init__(img_size=img_size, patch_size=patch_size, in_chans=in_chans,
 +                 embed_dim=embed_dim, depth=depth, num_heads=num_heads,
 +                 decoder_embed_dim=decoder_embed_dim, decoder_depth=decoder_depth, decoder_num_heads=decoder_num_heads,
-+                 mlp_ratio=mlp_ratio, norm_layer=norm_layer, norm_pix_loss=norm_pix_loss, norm_stats=norm_stats)
++                 mlp_ratio=mlp_ratio, mlp_layer=mlp_layer, norm_layer=norm_layer, norm_pix_loss=norm_pix_loss, norm_stats=norm_stats)
 +        self.loss_type = loss_type
 +        self.target_layers = target_layers
 +        print(f'+ loss_type={loss_type}, target_layers={target_layers}')
 +        if len(kwargs.keys()) > 0:
 +            print(' CAUTION: You set unknown arguments ->', kwargs)
 +        self.use_offline_target = False
++        world_size, rank = [1, 0] if world_rank is None else world_rank
++        self.clip_loss_fn = ClipLoss(rank=rank, world_size=world_size)
 +
 +        # --------------------------------------------------------------------------
 +        # Target encoder specifics
 +        self.target_blocks = nn.ModuleList([
-+            Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, norm_layer=norm_layer)
++            Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, norm_layer=norm_layer, mlp_layer=mlp_layer)
 +            for i in range(depth)])
 +        self.target_norm = norm_layer(embed_dim)
 +        set_requires_grad(self.target_blocks, False)
@@ -3349,7 +3495,7 @@
 +        ema_model_weight(ema_decay, self.target_blocks, self.blocks)
 +        ema_model_weight(ema_decay, self.target_norm, self.norm)
 +
-+    def random_masking(self, x, mask_ratio, adjust_short=False):
++    def random_masking(self, x, mask_ratio, adjust_short=False, raw_input=None):
 +        """
 +        Perform per-sample random masking by per-sample shuffling.
 +        Per-sample shuffling is done by argsort random noise.
@@ -3380,7 +3526,9 @@
 +            if adjust_short and L < HorF * WorT:
 +                # audio: shorten pos_embed for a short input
 +                WorT = L // HorF
-+            ids_shuffle, len_keep = self._random_mask_fn((N, HorF, WorT), mask_ratio, x.device)
++            ids_shuffle, len_keep = self._random_mask_fn((N, HorF, WorT), mask_ratio, x.device,
++                                                         data=raw_input, patch_size=self.patch_size(),
++                                                         hint_ratio=self.hint_ratio(), model=self)
 +            ids_restore = torch.argsort(ids_shuffle, dim=1)
 +
 +        # keep the visible patch indexes
@@ -3399,11 +3547,11 @@
 +
 +        return x_masked, x_masked2, mask, ids_restore
 +
-+    def forward_encoder(self, x, mask_ratio, return_layers=False, blocks=None, norm=None, adjust_short=False):
++    def forward_encoder(self, org_x, mask_ratio, return_layers=False, blocks=None, norm=None, adjust_short=False):
 +        blocks, norm = blocks or self.blocks, norm or self.norm
 +
 +        # embed patches
-+        x = self.patch_embed(x)
++        x = self.patch_embed(org_x)
 +
 +        # add pos embed w/o cls token
 +        pos_embed = self.pos_embed[:, 1:, :]
@@ -3415,8 +3563,8 @@
 +            pos_embed = pos_embed.reshape(1, fbins, -1, dims)[:, :, :frames, :].reshape(1, fbins*frames, dims)
 +        x = x + pos_embed
 +
-+        # masking: length -> length * mask_ratio; TODO fix comment
-+        x, x_targ, mask, ids_restore = self.random_masking(x, mask_ratio, adjust_short=adjust_short)
++        # masking: length -> length * mask_ratio
++        x, x_targ, mask, ids_restore = self.random_masking(x, mask_ratio, adjust_short=adjust_short, raw_input=org_x)
 +
 +        # append cls token
 +        cls_token = self.cls_token + self.pos_embed[:, :1, :]
@@ -3533,6 +3681,18 @@
 +        loss = self.forward_loss(target, pred, self.norm_pix_loss, self.loss_type)
 +        return loss, pred, (ids_restore, mask)
 +
++    # def forward(self, imgs, mask_ratio=0.7):  # For monitoring MI between masked/visible patches.
++    #     latent, x_targ, mask, ids_restore = self.forward_encoder(imgs, mask_ratio)
++    #     pred = self.forward_decoder(latent, ids_restore)  # [N, targL, D]
++    #     with torch.no_grad():
++    #         target = self.forward_target_encoder(x_targ)
++
++    #     loss = self.forward_loss(target, pred, self.norm_pix_loss, self.loss_type)
++    #     # calculate metrics for views
++    #     estimated_mi = info_nce_mi(self.clip_loss_fn, self.drop_cls_token(latent).mean(1), target.mean(1))
++    #     shared_pr = shared_dim_participation_ratio(self.drop_cls_token(latent).mean(1), target.mean(1)).mean()
++    #     return loss, pred, (ids_restore, mask, estimated_mi, shared_pr)
++
 +    def forward_viz(self, imgs, mask_ratio=0.7):
 +        # Visualize the input and mask.
 +        loss, pred, (ids_restore, mask) = self.forward(imgs, mask_ratio)
@@ -3589,7 +3749,11 @@
 +            target = torch.gather(target, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, target.shape[-1]))
 +
 +        loss = self.forward_loss(target, pred, norm_pix_loss=self.norm_pix_loss, loss_type=self.loss_type)
-+        return loss, pred, ids_restore # mask
++
++        # calculate metrics for views
++        estimated_mi = info_nce_mi(self.clip_loss_fn, self.drop_cls_token(latent).mean(1), target.mean(1))
++        shared_pr = shared_dim_participation_ratio(self.drop_cls_token(latent).mean(1), target.mean(1)).mean()
++        return loss, pred, (ids_restore, mask, estimated_mi, shared_pr)
 +
 +
 +def m2d_d2v_vit_base(patch_size=16, decoder_depth=8, in_chans=1, **kwargs):  # for audio
@@ -3714,7 +3878,7 @@
 +            pos_embed = pos_embed.reshape(1, fbins, -1, dims)[:, :, :frames, :].reshape(1, fbins*frames, dims)
 +        x = x + pos_embed
 +
-+        # masking: length -> length * mask_ratio; TODO fix comment
++        # masking: length -> length * mask_ratio
 +        x, x_targ, mask, ids_restore = self.random_masking(x, mask_ratio, adjust_short=adjust_short)
 +
 +        # append cls token
@@ -3748,20 +3912,34 @@
 +m2d_d2v_vit_base_encoder_only = m2d_vit_base_encoder_only
 +
 +
++def m2dsg_vit_base(patch_size=16, decoder_depth=8, in_chans=1, **kwargs):  # for audio
++    model = M2DViT(
++        in_chans=in_chans, patch_size=patch_size, embed_dim=768, depth=12, num_heads=12, mlp_layer=SwiGLU,
++        decoder_embed_dim=512, decoder_depth=decoder_depth, decoder_num_heads=16,
++        mlp_ratio=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
++    return model
++
++def m2dsg_vit_base_encoder_only(patch_size=16, decoder_depth=8, in_chans=1, **kwargs):  # for audio, encoder only
++    model = M2DEncoderViT(
++        in_chans=in_chans, patch_size=patch_size, embed_dim=768, depth=12, num_heads=12, mlp_layer=SwiGLU,
++        mlp_ratio=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
++    return model
++
++
 +# Masked Modeling Duo for X (M2D-X)
 +
 +class M2D_X_ViT(M2DViT):
 +    def __init__(self, img_size=224, patch_size=16, in_chans=3,
 +                 embed_dim=1024, depth=24, num_heads=16,
 +                 decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
-+                 mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False, norm_stats=None,
++                 mlp_ratio=4., mlp_layer=Mlp, norm_layer=nn.LayerNorm, norm_pix_loss=False, norm_stats=None,
 +                 loss_type='norm_mse', target_layers=None,
-+                 loss_m2d=1.0, loss_off=0.0, off_emb_dim=3840, **kwargs):
++                 loss_m2d=1.0, loss_off=0.0, off_emb_dim=3840, world_rank=None, **kwargs):
 +        super().__init__(img_size=img_size, patch_size=patch_size, in_chans=in_chans,
 +                 embed_dim=embed_dim, depth=depth, num_heads=num_heads,
 +                 decoder_embed_dim=decoder_embed_dim, decoder_depth=decoder_depth, decoder_num_heads=decoder_num_heads,
-+                 mlp_ratio=mlp_ratio, norm_layer=norm_layer, norm_pix_loss=norm_pix_loss, norm_stats=norm_stats,
-+                 loss_type=loss_type, target_layers=target_layers)
++                 mlp_ratio=mlp_ratio, mlp_layer=mlp_layer, norm_layer=norm_layer, norm_pix_loss=norm_pix_loss, norm_stats=norm_stats,
++                 loss_type=loss_type, target_layers=target_layers, world_rank=world_rank)
 +        self.loss_m2d = loss_m2d
 +        self.loss_off = loss_off
 +        print(f'+ loss_m2d={loss_m2d}, loss_off={loss_off}, off_emb_dim={off_emb_dim}')
@@ -3957,78 +4135,6 @@
 +
 +
 +# M2D-CLAP
-+from torch import distributed as dist
-+
-+def gather_features(set_of_features, rank=0, world_size=1):
-+    # Simplified version from: https://github.com/mlfoundations/open_clip/blob/main/src/open_clip/loss.py#L66
-+    def gather_features_one(features):
-+        gathered_features = [torch.zeros_like(features) for _ in range(world_size)]
-+        dist.all_gather(gathered_features, features)
-+
-+        # ensure grads for local rank when all_* features don't have a gradient
-+        gathered_features[rank] = features
-+
-+        all_features = torch.cat(gathered_features, dim=0)
-+        return all_features
-+
-+    all_features = [gather_features_one(features) for features in set_of_features]
-+
-+    return all_features
-+
-+class ClipLoss(nn.Module):
-+    # Simplified version from: https://github.com/mlfoundations/open_clip/blob/main/src/open_clip/loss.py#L66
-+    def __init__(
-+            self,
-+            cache_labels=False,
-+            rank=0,
-+            world_size=1,
-+    ):
-+        super().__init__()
-+        self.cache_labels = cache_labels
-+        self.rank = rank
-+        self.world_size = world_size
-+
-+        # cache state
-+        self.prev_num_logits = 0
-+        self.labels = {}
-+
-+    def get_ground_truth(self, device, num_logits) -> torch.Tensor:
-+        # calculated ground-truth and cache if enabled
-+        if self.prev_num_logits != num_logits or device not in self.labels:
-+            labels = torch.arange(num_logits, device=device, dtype=torch.long)
-+            if self.cache_labels:
-+                self.labels[device] = labels
-+                self.prev_num_logits = num_logits
-+        else:
-+            labels = self.labels[device]
-+        return labels
-+
-+    def get_logits(self, image_features, text_features, logit_scale):
-+        image_features = torch.nn.functional.normalize(image_features, dim=-1, p=2)
-+        text_features = torch.nn.functional.normalize(text_features, dim=-1, p=2)
-+
-+        if self.world_size > 1:
-+            all_image_features, all_text_features = gather_features(
-+                [image_features, text_features],
-+                rank=self.rank, world_size=self.world_size)
-+
-+            logits_per_image = logit_scale * all_image_features @ all_text_features.T
-+            logits_per_text = logits_per_image.T
-+        else:
-+            logits_per_image = logit_scale * image_features @ text_features.T
-+            logits_per_text = logit_scale * text_features @ image_features.T
-+
-+        return logits_per_image, logits_per_text
-+
-+    def forward(self, image_features, text_features, logit_scale):
-+        device = image_features.device
-+        logits_per_image, logits_per_text = self.get_logits(image_features, text_features, logit_scale)
-+        labels = self.get_ground_truth(device, logits_per_image.shape[0])
-+        total_loss = (F.cross_entropy(logits_per_image, labels) + F.cross_entropy(logits_per_text, labels)) / 2
-+        total_loss = total_loss
-+
-+        return total_loss
-+
 +
 +def get_MLP_projector(embed_dim, proj_hidden_dim, out_embed_dim):
 +    projector = torch.nn.Sequential(
@@ -4079,20 +4185,20 @@
 +    def __init__(self, img_size=224, patch_size=16, in_chans=3,
 +                 embed_dim=1024, depth=24, num_heads=16,
 +                 decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
-+                 mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False, norm_stats=None,
++                 mlp_ratio=4., mlp_layer=Mlp, norm_layer=nn.LayerNorm, norm_pix_loss=False, norm_stats=None,
 +                 loss_type='norm_mse', target_layers=None,
 +                 loss_m2d=1.0, loss_off=0.01, off_emb_dim=768, sem_mode=0,
-+                 clip_args=None, **kwargs):
++                 world_rank=None, **kwargs):
 +        super().__init__(img_size=img_size, patch_size=patch_size, in_chans=in_chans,
 +                 embed_dim=embed_dim, depth=depth, num_heads=num_heads,
 +                 decoder_embed_dim=decoder_embed_dim, decoder_depth=decoder_depth, decoder_num_heads=decoder_num_heads,
-+                 mlp_ratio=mlp_ratio, norm_layer=norm_layer, norm_pix_loss=norm_pix_loss, norm_stats=norm_stats,
++                 mlp_ratio=mlp_ratio, mlp_layer=mlp_layer, norm_layer=norm_layer, norm_pix_loss=norm_pix_loss, norm_stats=norm_stats,
 +                 loss_type=loss_type, target_layers=target_layers,
-+                 loss_m2d=loss_m2d, loss_off=loss_off, off_emb_dim=off_emb_dim)
++                 loss_m2d=loss_m2d, loss_off=loss_off, off_emb_dim=off_emb_dim, world_rank=world_rank)
 +        del self.offline_predictor
 +
 +        # CLIP
-+        rank, world_size = [0, 1] if clip_args is None else clip_args
++        world_size, rank = [1, 0] if world_rank is None else world_rank
 +        self.clip_loss_fn = ClipLoss(rank=rank, world_size=world_size)
 +        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
 +
@@ -4158,6 +4264,16 @@
 +
 +m2d_clap_vit_base_encoder_only = m2d_vit_base_encoder_only
 +m2d_clap_vit_large_encoder_only = m2d_vit_large_encoder_only
++
++
++def m2dsg_clap_vit_base(patch_size=16, decoder_depth=8, in_chans=1, **kwargs):  # for audio
++    model = M2D_CLAP_ViT(
++        in_chans=in_chans, patch_size=patch_size, embed_dim=768, depth=12, num_heads=12, mlp_layer=SwiGLU,
++        decoder_embed_dim=512, decoder_depth=decoder_depth, decoder_num_heads=16,
++        mlp_ratio=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
++    return model
++
++m2dsg_clap_vit_base_encoder_only = m2dsg_vit_base_encoder_only
 --- _org/m2d/pos_embed.py	2023-07-07 10:22:30.217586685 +0900
 +++ m2d/pos_embed.py	2023-07-07 10:22:30.229586731 +0900
 @@ -23,12 +23,13 @@
@@ -4222,8 +4338,8 @@
  
      # add back extra (class, etc) prefix tokens
 --- _org/mae_train_audio.py	2023-07-07 10:22:30.225586716 +0900
-+++ mae_train_audio.py	2024-03-25 19:07:49.243548273 +0900
-@@ -15,40 +15,45 @@
++++ mae_train_audio.py	2026-02-20 15:37:38.549919216 +0900
+@@ -15,69 +15,96 @@
  import os
  import time
  from pathlib import Path
@@ -4279,7 +4395,29 @@
  
      parser.add_argument('--mask_ratio', default=0.75, type=float,
                          help='Masking ratio (percentage of removed patches).')
-@@ -60,24 +65,30 @@
++    parser.add_argument('--weighted_mask', action='store_true',
++                        help='Use weighted masking based on data contents.')
++    parser.add_argument('--var_weighted_mask', action='store_true',
++                        help='Use weighted masking (var) based on data contents.')
++    parser.add_argument('--det_weighted_mask', action='store_true',
++                        help='Use weighted masking -non probabilistic- based on data contents.')
++    parser.add_argument('--block_mask', action='store_true',
++                        help='Use block masking from data2vec 2.0.')
++    parser.add_argument('--obj_cent_mask', action='store_true',
++                        help='Use object centric masking based on data contents.')
++    parser.add_argument('--masking_hint_k', default=2, type=int)
++    parser.add_argument('--masking_start_epoch', default=50, type=int)
++    parser.add_argument('--abs_hint_ratio', default=-1.0, type=float)  # set value >= 0.0 to enable absolute hint ratio
+ 
+-    parser.add_argument('--norm_pix_loss', action='store_true',
++    parser.add_argument('--no_norm_pix_loss', action='store_false', dest='norm_pix_loss',
+                         help='Use (per-patch) normalized pixels as targets for computing loss')
+-    parser.set_defaults(norm_pix_loss=False)
++    parser.set_defaults(norm_pix_loss=True)
++
++    parser.add_argument('--cont_mask', default=0, type=int,
++                        help='Use random 1-d (continuous) masking scheme. 0:off, 0<:# of frames to make them continuous.')
+ 
      # Optimizer parameters
      parser.add_argument('--weight_decay', type=float, default=0.05,
                          help='weight decay (default: 0.05)')
@@ -4315,7 +4453,7 @@
                          help='path where to tensorboard log')
      parser.add_argument('--device', default='cuda',
                          help='device to use for training / testing')
-@@ -104,6 +115,29 @@
+@@ -104,6 +131,40 @@
      return parser
  
  
@@ -4330,12 +4468,23 @@
 +        _, recons, _, masks = model.forward_viz(batch.to(device))
 +    save_path.mkdir(parents=True, exist_ok=True)
 +
++    grid_size = model.grid_size()
++    patch_size = model.patch_size()
++    masked = batch.clone().squeeze(1)  # [B, 1, H, W] -> [B, H, W]
++    for i, file in enumerate(files):
++        for y in range(grid_size[0]):
++            for x in range(grid_size[1]):
++                if not masks[i, y, x]: continue
++                y_start, y_end = y * patch_size[0], (y + 1) * patch_size[0]
++                x_start, x_end = x * patch_size[1], (x + 1) * patch_size[1]
++                masked[i, y_start:y_end, x_start:x_end] = 0.5 * torch.ones(patch_size, device=masked.device)
++
 +    for i, file in enumerate(files):
 +        # as .npy
 +        np.save(f"{save_path}/recon_{Path(file).name}", recons[i].cpu().numpy())
 +        # as .png
 +        fig = plt.figure(figsize=[12, 8 if batch[0].shape[-1] < 310 else 6])
-+        for j, img in enumerate([batch[i][0], recons[i][0], masks[i]]):
++        for j, img in enumerate([batch[i][0], recons[i][0], masked[i]]):
 +            ax = fig.add_subplot(3, 1, j + 1)
 +            ax.imshow(img.cpu().numpy(), origin='lower')
 +        plt.margins(x=0, y=0)
@@ -4345,7 +4494,7 @@
  def main(args):
      misc.init_distributed_mode(args)
  
-@@ -119,13 +153,7 @@
+@@ -119,13 +180,7 @@
  
      cudnn.benchmark = True
  
@@ -4360,7 +4509,7 @@
      print(dataset_train)
  
      if True:  # args.distributed:
-@@ -143,6 +171,8 @@
+@@ -143,6 +198,8 @@
          log_writer = SummaryWriter(log_dir=args.log_dir)
      else:
          log_writer = None
@@ -4369,13 +4518,30 @@
  
      data_loader_train = torch.utils.data.DataLoader(
          dataset_train, sampler=sampler_train,
-@@ -153,12 +183,13 @@
+@@ -153,12 +210,30 @@
      )
      
      # define the model
 -    model = models_mae.__dict__[args.model](norm_pix_loss=args.norm_pix_loss)
 +    model = m2d.models_mae.__dict__[args.model](img_size=args.input_size, decoder_depth=args.decoder_depth,
 +        norm_pix_loss=args.norm_pix_loss)
++    if args.weighted_mask:
++        assert (args.cont_mask == 0) and (not args.var_weighted_mask) and (not args.obj_cent_mask), "Masking options conflict."
++        model.set_random_weighted_mask_with_hint()
++    if args.var_weighted_mask:
++        assert (args.cont_mask == 0) and (not args.weighted_mask) and (not args.obj_cent_mask), "Masking options conflict."
++        model.set_random_weighted_mask_var_with_hint()
++    if args.obj_cent_mask:
++        assert (args.cont_mask == 0) and (not args.weighted_mask) and (not args.var_weighted_mask), "Masking options conflict."
++        if args.masking_start_epoch == 0:
++            print(f"⚠️  Warning: Too early to start object centric masking.")
++        model.set_object_centric_mask_with_hint()
++    if args.det_weighted_mask:
++        model.set_determ_weighted_mask_with_hint()
++    if args.block_mask:
++        model.set_data2vec2_block_masking()
++    if args.cont_mask > 0:
++        model.set_random_1d_mask(args.cont_mask)
  
      model.to(device)
  
@@ -4385,7 +4551,7 @@
  
      eff_batch_size = args.batch_size * args.accum_iter * misc.get_world_size()
      
-@@ -176,7 +207,11 @@
+@@ -176,7 +251,11 @@
          model_without_ddp = model.module
      
      # following timm: set wd as 0 for bias and norm layers
@@ -4398,15 +4564,21 @@
      optimizer = torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
      print(optimizer)
      loss_scaler = NativeScaler()
-@@ -186,6 +221,7 @@
+@@ -186,18 +265,31 @@
      print(f"Start training for {args.epochs} epochs")
      start_time = time.time()
      for epoch in range(args.start_epoch, args.epochs):
 +        epoch1 = epoch + 1
          if args.distributed:
              data_loader_train.sampler.set_epoch(epoch)
++        if args.weighted_mask or args.var_weighted_mask or args.det_weighted_mask or args.block_mask or args.obj_cent_mask:
++            if args.abs_hint_ratio < 0.0:
++                model_without_ddp.set_hint_ratio_by_epoch(cur_epoch=epoch, total_epochs=args.epochs, start_epoch=args.masking_start_epoch, k=args.masking_hint_k)
++            else:
++                model_without_ddp.set_hint_ratio(args.abs_hint_ratio)
          train_stats = train_one_epoch(
-@@ -194,10 +230,17 @@
+             model, data_loader_train,
+             optimizer, device, epoch, loss_scaler,
              log_writer=log_writer,
              args=args
          )
@@ -4426,7 +4598,7 @@
  
          log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          'epoch': epoch,}
-@@ -212,10 +255,23 @@
+@@ -212,10 +304,47 @@
      total_time_str = str(datetime.timedelta(seconds=int(total_time)))
      print('Training time {}'.format(total_time_str))
  
@@ -4435,6 +4607,30 @@
 +        abspath = Path(f'{args.output_dir}/checkpoint-{epoch1}.pth').absolute()
 +        subprocess.call(['/bin/bash', './all_eval.sh', abspath])
 +
++arg_conf_defaults = {
++   'dataset': ('data/files_audioset.csv', 'D', 'path'),
++    'ema_decay_init': (0.99995, 'ema', 'z'),
++    'ema_decay': (0.99999, 'ed', 'z'),
++    'decoder_depth': (8, 'dd', 'asis'),
++    'mask_ratio': (0.75, 'mr', 'z'),
++    'seed': (0, 's', 'asis'),
++    'norm_pix_loss':  (True, '~N', 'b'),
++    'loss_fn': ('norm_mse', 'L', 'head'),
++    'optim': ('adamw', 'O', 'asis'),
++    'blr': (3e-4, 'blr', 'z'),
++    'lr': (None, 'lr', 'z'),
++    'eff_batch_size': (2048, 'bs', 'asis'),
++    'accum_iter': (1, 'a', 'asis'),
++    'cont_mask': (0, 'C', 'asis'),
++    'weighted_mask': (False, 'Wm', 'b'),
++    'var_weighted_mask': (False, 'Vm', 'b'),
++    'det_weighted_mask': (False, 'Dm', 'b'),
++    'block_mask': (False, 'Bm', 'b'),
++    'obj_cent_mask': (False, 'Om', 'b'),
++    'masking_hint_k': [2, 'k', 'asis'],
++    'masking_start_epoch': [50, 'i', 'asis'],
++    'abs_hint_ratio': [-1.0, 'a', 'asis'],
++}
  
  if __name__ == '__main__':
      args = get_args_parser()
@@ -4443,7 +4639,7 @@
 -        Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 +    if not args.output_dir:
 +        args.output_dir = f'{args.model}-{args.input_size}p{args.patch_size}'
-+        args.output_dir += f'-{common.get_timestamp()[:6]}-{common.arg_conf_str(args)}'
++        args.output_dir += f'-{common.get_timestamp()[:6]}-{common.arg_conf_str(args, defaults=arg_conf_defaults)}'
 +    if not args.log_dir:
 +        args.log_dir = args.output_dir
 +    args.input_size = [int(x) for x in args.input_size.split('x')]

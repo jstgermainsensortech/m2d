@@ -1,17 +1,19 @@
 <table>
   <tr> <td align="center" width="50%">
-      <img src="image-key-visual-m2d.jpg" alt="key_visual_M2D" width="95%"><br>
+      <img src="examples/image-key-visual-m2d.jpg" alt="key_visual_M2D" width="95%"><br>
       Masked Modeling Duo (M2D)
     </td>
     <td align="center" width="50%">
-      <img src="image-key-vis-m2d-clap.jpg" alt="key_visual_M2D-CLAP" width="73%"><br>
+      <img src="examples/image-key-vis-m2d-clap.jpg" alt="key_visual_M2D-CLAP" width="73%"><br>
       M2D-CLAP
     </td> </tr>
 </table>
 
 # Masked Modeling Duo (M2D) & M2D-CLAP
 
-This repository provides demo implementations of our paper "[M2D-CLAP: Exploring General-purpose Audio-Language Representations Beyond CLAP](https://ieeexplore.ieee.org/document/11168481)", "[Masked Modeling Duo: Towards a Universal Audio Pre-training Framework](https://ieeexplore.ieee.org/document/10502167)", and so on.
+This repository provides demo implementations of our paper "[Masked Modeling Duo: Towards a Universal Audio Pre-training Framework](https://ieeexplore.ieee.org/document/10502167)", "[M2D-CLAP: Exploring General-purpose Audio-Language Representations Beyond CLAP](https://ieeexplore.ieee.org/document/11168481)", "[Masked Modeling Duo: Learning Representations by Encouraging Both Networks to Model the Input](https://arxiv.org/abs/2210.14648)", and so on.
+
+> 🌟 **Looking for the best general-purpose audio model?** [M2D-CLAP](clap/README.md) achieves state-of-the-art performance on audio tagging, zero-shot classification, and audio-language tasks — try it instantly in [Colab](http://colab.research.google.com/github/nttcslab/m2d/blob/master/examples/Colab_M2D-CLAP_ESC-50_ZS.ipynb).
 
 ## Quick Start
 
@@ -21,22 +23,22 @@ This repository provides demo implementations of our paper "[M2D-CLAP: Exploring
 | Zero-shot ESC-50 classification with M2D-CLAP | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg) examples/Colab_M2D-CLAP_ESC-50_ZS.ipynb](http://colab.research.google.com/github/nttcslab/m2d/blob/master/examples/Colab_M2D-CLAP_ESC-50_ZS.ipynb) |
 | Audio feature visualization example with M2D-CLAP | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg) examples/Colab_M2D-CLAP_ESC-50_VizualizeEmbs.ipynb](http://colab.research.google.com/github/nttcslab/m2d/blob/master/examples/Colab_M2D-CLAP_ESC-50_VizualizeEmbs.ipynb) |
 
-You can use simple code to load an M2D model and encode your audio.
+The example below uses **M2D-CLAP**, our recommended model. You can load it and encode audio in just a few lines:
 
 ```python
-# Create a model and load pre-trained weights.
-from examples.portable_m2d import PortableM2D  # The portable_m2d is a simple one-file loader.
+# 🔊 Load model
+from examples.portable_m2d import PortableM2D  # portable_m2d: a simple one-file loader
 model = PortableM2D('m2d_clap_vit_base-80x1001p16x16p16kpBpTI-2025/checkpoint-30.pth')
 
-# Prepare test audios. (a dummy example of three 10-s waveforms)
+# 🎵 Prepare input (three 10-s waveforms, range [-1., 1.])
 import torch
-batch_audio = 2 * torch.rand((3, 10 * 16000)) - 1.0 # input range = [-1., 1]
+batch_audio = 2 * torch.rand((3, 10 * 16000)) - 1.0
 
-# Encode raw audio into frame-level features.
+# 📐 Encode → frame-level features
 frame_level = model(batch_audio)
-print(frame_level.shape)  # torch.Size([3, 63, 3840]). 3 frame-level 3840-d feature vectors for 63 time frames.
+print(frame_level.shape)  # torch.Size([3, 63, 3840])
 
-# Make clip-level features by averaging frame-level features along time frames.
+# 📦 Aggregate → clip-level features
 clip_level = torch.mean(frame_level, dim=1)
 print(clip_level.shape)  # torch.Size([3, 3840])
 ```
@@ -48,7 +50,7 @@ print(clip_level.shape)  # torch.Size([3, 3840])
 
 | Description | Recommendation | Weight | Fur-PT Ready | AS2M mAP |
 |:------------|:---------------|:-------|:-------------:|:--------:|
-| M2D-CLAP_2025, fine-tuned on AS2M in Stage 1.1 | Best for CLAP / audio tagging (AT) / sound event detection (SED). | [m2d_clap_vit_base-80x1001p16x16p16kpBpTI-2025](https://github.com/nttcslab/m2d/releases/download/v0.5.0/m2d_clap_vit_base-80x1001p16x16p16kpBpTI-2025.zip) | ✅ | 0.490 |
+| M2D-CLAP_2025 ⭐ | **Recommended.** Best for CLAP / audio tagging (AT) / sound event detection (SED). | [m2d_clap_vit_base-80x1001p16x16p16kpBpTI-2025](https://github.com/nttcslab/m2d/releases/download/v0.5.0/m2d_clap_vit_base-80x1001p16x16p16kpBpTI-2025.zip) | ✅ | 0.490 |
 | M2D-CLAP_2024, additionally fine-tuned on AS2M | 2nd Best for AT/SED. (Encoder only) | [m2d_clap_vit_base-80x1001p16x16-240128_AS-FT_enconly](https://github.com/nttcslab/m2d/releases/download/v0.3.0/m2d_clap_vit_base-80x1001p16x16-240128_AS-FT_enconly.zip) | N/A | 0.485 |
 | M2D-AS fine-tuned on AS2M | 3rd best for AT/SED. (Encoder only) | [m2d_as_vit_base-80x1001p16x16-240213_AS-FT_enconly](https://github.com/nttcslab/m2d/releases/download/v0.3.0/m2d_as_vit_base-80x1001p16x16-240213_AS-FT_enconly.zip) | N/A | 0.485 |
 | M2D/0.7 fine-tuned on AS2M | 4th best for AT/SED. (Encoder only) | [m2d_vit_base-80x1001p16x16-221006-mr7_as_46ab246d](https://github.com/nttcslab/m2d/releases/download/v0.3.0/m2d_vit_base-80x1001p16x16-221006-mr7_as_46ab246d.zip) | N/A | 0.479 |
@@ -60,6 +62,7 @@ print(clip_level.shape)  # torch.Size([3, 3840])
 | M2D/0.6 | General-purpose transfer learning and further pre-training. | [m2d_vit_base-80x608p16x16-221006-mr6](https://github.com/nttcslab/m2d/releases/download/v0.1.0/m2d_vit_base-80x608p16x16-221006-mr6.zip) | ✅ | - |
 | M2D-CLAP_2024 (Older) | General-purpose transfer learning and further pre-training, especially when application data is closer to the AudioSet ontology. | [m2d_clap_vit_base-80x608p16x16-240128](https://github.com/nttcslab/m2d/releases/download/v0.1.0/m2d_clap_vit_base-80x608p16x16-240128.zip) | ✅ | - |
 | M2D-AS | General-purpose transfer learning and further pre-training, especially when application data is closer to the AudioSet ontology. | [m2d_as_vit_base-80x608p16x16-240213](https://github.com/nttcslab/m2d/releases/download/v0.1.0/m2d_as_vit_base-80x608p16x16-240213.zip) | ✅ | - |
+| [MSM-MAE](https://github.com/nttcslab/msm-mae)/0.75 | Predecessor to M2D; for reproducibility or comparison. | [msm_mae_vit_base-80x608p16x16-220924-mr75](https://github.com/nttcslab/m2d/releases/download/v0.1.0/msm_mae_vit_base-80x608p16x16-220924-mr75.zip) | ✅ | - |
 
 | Description | Recommendation | Weight | Fur-PT Ready | AS2M mAP |
 |:--------------|:----------------|:------------|:------:|:--------:|
@@ -77,21 +80,23 @@ print(clip_level.shape)  # torch.Size([3, 3840])
 
 ## Application Resources
 
-👉 [**Application Guide (alpha) is available.**](Guide_app.md) -- Our guidelines may provide useful information on how to plan further pre-train your models.
+👉 [**Application Guide (alpha) is available.**](app/Guide_app.md) -- Our guidelines may provide useful information on how to plan further pre-train your models.
 <figure>
-  <a href="Guide_app.md"><img src="image-AppGuideChart.png" alt="A guide chart", width="30%"></a>
+  <a href="app/Guide_app.md"><img src="examples/image-AppGuideChart.png" alt="A guide chart", width="30%"></a>
 </figure>
 
+- [👉 **Resources for M2D-CLAP (General-purpose Audio-Language Representation)**](clap/README.md).
 - [👉 **Resources for M2D-X medical applications (ICBHI2017/SPRSound), further pre-training examples**](app/icbhi_sprs/README_ICBHI_SPRS.md).
 - [👉 **Resources for M2D medical application (CirCor DigiScope heart sound)**](app/circor/README.md).
-- [👉 **Resources for M2D-CLAP (General-purpose Audio-Language Representation)**](clap/README.md).
 - [👉 **Resources for M2D-AS (M2D-X specialized in AudioSet)**](audioset/README.md).
 - [👉 **Resources for M2D-S (M2D-X specialized in Speech)**](speech/README.md).
-- TBD Preparing one more thing.
+- [👉 **Resources for M2D on respiratory sound analysis (OPERA benchmark)**](https://github.com/nttcslab/eval-audio-repr/blob/main/plugin/OPERA/REAEDME_OPERA.md) — Pre-training and evaluation resources for respiratory sounds using M2D, hosted in the EVAR repository (see our [Interspeech 2025 paper](https://www.isca-archive.org/interspeech_2025/niizumi25_interspeech.html)).
+- [👉 **Resources for M2D on music understanding (MARBLE benchmark)**](https://github.com/nttcslab/eval-audio-repr/blob/main/plugin/MARBLE/REAEDME_MARBLE.md) — Integration of M2D with the MARBLE music benchmark, hosted in the EVAR repository (covered in the [M2D-CLAP 2025 paper](https://ieeexplore.ieee.org/document/11168481)).
+- [👉 **MSM-MAE pre-training (predecessor to M2D)**](examples/MSM-MAE_Pretraining.md) — Pre-training guide for [MSM-MAE](https://github.com/nttcslab/msm-mae), the model that M2D builds upon. Provided for reproducibility and comparison.
 
 A schematic illustration of M2D-X further pre-training:
 <figure>
-  <img src="image-M2D-further-PT.svg" alt="A schematic illustration of M2D-X further pre-training", width="40%">
+  <img src="examples/image-M2D-further-PT.svg" alt="A schematic illustration of M2D-X further pre-training", width="40%">
 </figure>
 
 ## 1. Setup
@@ -135,12 +140,11 @@ We use the [EVAR](https://github.com/nttcslab/eval-audio-repr) for our evaluatio
 
 [EVAR](https://github.com/nttcslab/eval-audio-repr) is an evaluation package for audio representations used by our research papers such as [BYOL-A](https://ieeexplore.ieee.org/document/9944865).
 
-The following steps setup EVAR.
+The following steps set up EVAR.
 
 1. In the folder of your copy of the M2D repository, clone the EVAR repository and prepare basic items.
 
     ```sh
-    (cd to your M2D folder)
     git clone https://github.com/nttcslab/eval-audio-repr.git evar
     cd evar
     curl https://raw.githubusercontent.com/daisukelab/general-learning/master/MLP/torch_mlp_clf2.py -o evar/utils/torch_mlp_clf2.py
@@ -149,7 +153,7 @@ The following steps setup EVAR.
     cd ..
     ```
 
-2. Setup downstream task datasets according to [Preparing-datasets.md](https://github.com/nttcslab/eval-audio-repr/blob/main/Preparing-datasets.md). The following is an example for setting up CREMA-D dataset.
+2. Set up downstream task datasets according to [Preparing-datasets.md](https://github.com/nttcslab/eval-audio-repr/blob/main/Preparing-datasets.md). The following is an example for setting up CREMA-D dataset.
 
     ```sh
     cd evar
@@ -160,7 +164,7 @@ The following steps setup EVAR.
 
 ### 2-2. Linear Evaluation
 
-Once you setup the EVAR, you can evaluate your models as follows.
+Once you set up EVAR, you can evaluate your models as follows.
 
 - For evaluating a model with an absolute path `/your/path/to/model.pth`.
 
@@ -169,7 +173,7 @@ Once you setup the EVAR, you can evaluate your models as follows.
     python lineareval.py config/m2d.yaml cremad weight_file=/your/path/to/model.pth
     ```
 
-- If you want to save GPU memory, set a fewer batch size as follows. This example sets it as 16.
+- If you want to save GPU memory, set a smaller batch size as follows. This example sets it as 16.
 
     ```sh
     cd evar
@@ -180,28 +184,28 @@ We used the `all_eval.sh` script to evaluate on all downstream tasks.
 
 ### 2-3. Fine-tuning
 
-We have fin-tuned our models using the scripts in the `util` folder.
+We have fine-tuned our models using the scripts in the `util` folder.
 
-The following examples will fine-tune on each task for three times with the random seed 43, 44, and 45, and the `m2d_vit_base-80x608p16x16-221006-mr7/checkpoint-300.pth`  will be tested. Replace the `/your/path/to/m2d_vit_base-80x608p16x16-221006-mr7` to yours.
+The following examples fine-tune on each downstream task three times with seed 42. Replace `/your/path/to/m2d_vit_base-80x608p16x16-221006-mr7` with your actual model path.
 
 ```sh
 cd evar
-bash (your m2d)/util/ft-as2m.sh /your/path/to/m2d_vit_base-80x608p16x16-221006-mr7 3 42 300
-bash (your m2d)/util/ft-as0k.sh /your/path/to/m2d_vit_base-80x608p16x16-221006-mr7 3 42 300
-bash (your m2d)/util/ft-esc50.sh /your/path/to/m2d_vit_base-80x608p16x16-221006-mr7 3 42 300
-bash (your m2d)/util/ft-spc.sh /your/path/to/m2d_vit_base-80x608p16x16-221006-mr7 3 42 300
-bash (your m2d)/util/ft-vc1.sh /your/path/to/m2d_vit_base-80x608p16x16-221006-mr7 3 42 300
+bash <path/to/m2d>/util/ft-as2m.sh /your/path/to/m2d_vit_base-80x608p16x16-221006-mr7 3 42 300  # AudioSet 2M
+bash <path/to/m2d>/util/ft-as0k.sh /your/path/to/m2d_vit_base-80x608p16x16-221006-mr7 3 42 300  # AudioSet 20K
+bash <path/to/m2d>/util/ft-esc50.sh /your/path/to/m2d_vit_base-80x608p16x16-221006-mr7 3 42 300  # ESC-50
+bash <path/to/m2d>/util/ft-spc.sh /your/path/to/m2d_vit_base-80x608p16x16-221006-mr7 3 42 300  # Speech Commands
+bash <path/to/m2d>/util/ft-vc1.sh /your/path/to/m2d_vit_base-80x608p16x16-221006-mr7 3 42 300  # VoxCeleb1
 ```
 
-#### NOTE: Please set your data path in the `util/ft-as2m.sh`
+#### NOTE: Please set your data path in `util/ft-as2m.sh`
 
-The `ft-as2m.sh` requires the path to your log-mel spectrogram AudioSet samples in .npy, configure the script with yours.
+The `ft-as2m.sh` requires the path to your log-mel spectrogram AudioSet samples in .npy. Update it with your data path before running.
 
 ## 3. Pre-training From Scratch
 
 ### 3-1. Prepare pre-training data samples
 
-The pre-trainer (e.g., `train_audio.py` for audio) loads data from the `data` folder by default (`--data_path`), using a list of samples in a CSV `data/files_audioset.csv` by default (`--dataset`).
+The pre-trainer (e.g., `train_audio.py` for audio) loads data from the `data` folder by default (`--data_path`), using a list of samples in a CSV `data/files_audioset.csv` by default (`--csv_main`).
 Follow the steps in [data/README.md](data/README.md).
 
 The following is an example using the [FSD50K](https://arxiv.org/abs/2010.00475) dataset.
@@ -234,10 +238,10 @@ Example of created folder structure:
 Once your data is ready, start pre-training as follows.
 
 ```sh
-python train_audio.py --dataset data/files_fssd50k.csv
+python train_audio.py --csv_main data/files_f_s_d_5_0_k.csv
 ```
 
-### 3-3. Evalidation during and after the training
+### 3-3. Evaluation during and after the training
 
 The training loop automatically evaluates the pre-trained model.
 
@@ -255,9 +259,15 @@ OMP_NUM_THREADS=1 torchrun --nproc_per_node=4 -m train_audio --input_size 80x608
 OMP_NUM_THREADS=1 torchrun --nproc_per_node=4 -m audioset.train_as --input_size 80x608 --patch_size 16x16 --epochs 300 --batch_size 512 --accum_iter 1 --save_freq 50 --seed 3 --data_path /path/to/your/data --loss_off 1.
 ```
 
+> **Note:** Replace `/path/to/your/data` with the path to your LMS data directory. Placing data on fast storage (SSD recommended) significantly speeds up training. If `--data_path` is omitted, the `data/` directory at the repository root is used.
+
 Example logs are available: [example_logs.zip](https://github.com/nttcslab/m2d/releases/download/v0.1.0/example_logs.zip).
 
-We explain the details in the [Guide_app.md](Guide_app.md).
+We explain the details in the [Guide_app.md](app/Guide_app.md).
+
+For other model variants, see also:
+- [M2D-CLAP pre-training](clap/README.md) — multi-stage training for audio-language representation
+- [MSM-MAE pre-training](examples/MSM-MAE_Pretraining.md) — predecessor to M2D
 
 ## 4. Other Pre-trained/fine-tuned Weights
 
@@ -269,17 +279,16 @@ See [LICENSE.pdf](LICENSE.pdf) for details.
 
 ## Citations
 
-If you find our M2D useful in your research, please consider citing our papers.
+If you find our M2D or M2D-CLAP useful in your research, please consider citing our papers.
 
 ```BibTeX
 @article{niizumi2025m2d-clap,
-    author={Niizumi, Daisuke and Takeuchi, Daiki and Yasuda, Masahiro and Thien Nguyen, Binh and Ohishi, Yasunori and Harada, Noboru},
-    journal={IEEE Access}, 
-    title={M2D-CLAP: Exploring General-Purpose Audio-Language Representations Beyond CLAP}, 
-    year={2025},
-    volume={13},
-    number={},
-    pages={163313-163330},
+    author  = {Niizumi, Daisuke and Takeuchi, Daiki and Yasuda, Masahiro and Nguyen, Binh Thien and Ohishi, Yasunori and Harada, Noboru},
+    journal = {IEEE Access}, 
+    title   = {{M2D-CLAP: Exploring General-purpose Audio-Language Representations Beyond CLAP}}, 
+    year    = {2025},
+    volume  = {13},
+    pages   = {163313-163330},
     doi={10.1109/ACCESS.2025.3611348}}
 
 @article{niizumi2024m2dx,
@@ -318,10 +327,10 @@ If you find our M2D useful in your research, please consider citing our papers.
 
 @inproceedings{niizumi2024embc,
     title   = {{Exploring Pre-trained General-purpose Audio Representations for Heart Murmur Detection}},
-    author. = {Niizumi, Daisuke and Takeuchi, Daiki and Ohishi, Yasunori and Harada, Noboru and Kashino, Kunio},
+    author  = {Niizumi, Daisuke and Takeuchi, Daiki and Ohishi, Yasunori and Harada, Noboru and Kashino, Kunio},
     booktitle={EMBC},
     year    = {2024},
-    pages.  = {1-4},
+    pages   = {1-4},
     doi     = {10.1109/EMBC53108.2024.10782479}}
 ```
 

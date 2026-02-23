@@ -7,22 +7,22 @@ sys.path.append('..')  # workaround for using heareval with `pip install -e .`
 import logging
 from pathlib import Path
 import re
+import os
 
 import torch
 import torch.nn as nn
-from timm.models.layers import trunc_normal_
+from timm.layers import trunc_normal_
 from einops import rearrange
 import nnAudio.features
 
 from . import models_mae
 from .timm_layers_pos_embed import resample_abs_pos_embed 
+from transformers import AutoTokenizer, AutoModel, BertModel
 
 
 class Config:
     weight_file = ''
     feature_d = 768 * 5
-    norm_type = all
-    pooling_type = 'mean'
 
     model = ''
     input_size = [80, 208]
@@ -151,7 +151,7 @@ def parse_clap_type(name):
 def clap_off_emb_dim(param_extra):
     if len(param_extra) == 0:
         return 768
-    return {'A': 768, 'B': 768, 'C': 1024, 'D': 1024, 'M': 1024, 'L': 1024, 'M': 768, 'N': 4096, 'Q': 3584, 'R': 768}[param_extra[0]]
+    return {'A': 768, 'B': 768, 'C': 1024, 'D': 1024, 'L': 1024, 'M': 768, 'N': 4096, 'Q': 3584, 'R': 768}[param_extra[0]]
 
 
 def parse_clap_text_encoder_weight(param_extra, cfg, ckpt_cfg=None):
@@ -330,14 +330,6 @@ class RuntimeM2D(nn.Module):
         self.sample_rate = cfg.sample_rate
         self.eval()
 
-    def forward(self, lms):
-        assert hasattr(self, 'head'), 'Set the option num_classes with your desired number of classes, such as 527 for AudioSet.'
-        x = self.encode_lms(lms)  # B, T, D
-        x = x.mean(1)  # B, D
-        x = self.head_norm(x) if isinstance(self.head_norm, torch.nn.LayerNorm) else self.head_norm(x.unsqueeze(-1)).squeeze(-1)
-        x = self.head(x)
-        return x
-
     def is_training_mask(self):
         return self.cfg.training_mask > 0.0
 
@@ -467,8 +459,12 @@ class RuntimeM2D(nn.Module):
         audio_embeddings = self.backbone.audio_proj(audio_embeddings)
         return audio_embeddings
 
-    def encode_clap_audio(self, batch_audio):
-        audio_embeddings = self.forward(batch_audio)
+    def encode_clap_audio(self, batch_audio, is_lms=False):
+        if is_lms:
+            lms = self.normalize_batch(batch_audio)  # normalize LMS input
+            audio_embeddings = self.encode_lms(lms)
+        else:
+            audio_embeddings = self.forward(batch_audio)
         audio_embeddings = self.project_audio(audio_embeddings)
         return audio_embeddings
 
@@ -498,8 +494,6 @@ class RuntimeM2D(nn.Module):
 class GTETextEncoder(nn.Module):
     def __init__(self, clip_weight="thenlper/gte-base"):
         super().__init__()
-        from transformers import AutoTokenizer, AutoModel
-        import os
         os.environ["TOKENIZERS_PARALLELISM"] = "true"  # To suppress warnings.
 
         self.tokenizer = AutoTokenizer.from_pretrained(clip_weight)
@@ -524,7 +518,6 @@ class GTEL15Encoder(nn.Module):
     def __init__(self, clip_weight="Alibaba-NLP/gte-large-en-v1.5"):
         super().__init__()
         from sentence_transformers import SentenceTransformer
-        import os
         os.environ["TOKENIZERS_PARALLELISM"] = "true"  # To suppress warnings.
 
         self.model = SentenceTransformer(clip_weight, trust_remote_code=True)
@@ -539,21 +532,12 @@ class NVEmbedV2Encoder(nn.Module):
         # https://huggingface.co/spaces/mteb/leaderboard https://huggingface.co/nvidia/NV-Embed-v2
         # https://arxiv.org/pdf/2405.17428
         super().__init__()
-        from sentence_transformers import SentenceTransformer
-        import os
         os.environ["TOKENIZERS_PARALLELISM"] = "true"  # To suppress warnings.
 
-        self.model = SentenceTransformer(clip_weight, trust_remote_code=True)
-        self.model.max_seq_length = 32768
-        self.model.tokenizer.padding_side="right"
+        self.model = AutoModel.from_pretrained(clip_weight, trust_remote_code=True)
 
     def __call__(self, texts, **kwargs):
-        def add_eos(input_examples):
-            input_examples = [input_example + self.model.tokenizer.eos_token for input_example in input_examples]
-            return input_examples
-        texts = add_eos(texts)
-        embeddings = self.model.encode(texts, batch_size=len(texts), show_progress_bar=False, convert_to_tensor=True)
-        # normalize_embeddings=True
+        embeddings = self.model.encode(texts, instruction="", max_length=32768)
         return embeddings
 
 
@@ -576,8 +560,6 @@ class CLIPLTextEncoder(nn.Module):
 class BertXEncoder(nn.Module):
     def __init__(self, clip_weight="google-bert/bert-base-uncased"):
         super().__init__()
-        from transformers import AutoTokenizer, AutoModel
-        import os
         os.environ["TOKENIZERS_PARALLELISM"] = "true"  # To suppress warnings.
 
         self.tokenizer = AutoTokenizer.from_pretrained(clip_weight)

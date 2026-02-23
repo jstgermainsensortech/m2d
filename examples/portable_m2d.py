@@ -15,7 +15,7 @@ import re
 
 import torch
 import timm
-from timm.models.layers import trunc_normal_
+from timm.layers import trunc_normal_
 from einops import rearrange
 import nnAudio.features
 
@@ -23,8 +23,6 @@ import nnAudio.features
 class Config:
     weight_file = ''
     feature_d = 768 * 5
-    norm_type = all
-    pooling_type = 'mean'
     model = ''
     input_size = [80, 208]
     patch_size = [16, 16]
@@ -210,8 +208,6 @@ def extract_weight(checkpoint, root_name):
         return checkpoint
     # keep only the items starts with the root_name
     new_ckpt = {k[len(root_name):]: v for k, v in checkpoint.items() if k.startswith(root_name)}
-    # for k, v in checkpoint.items():
-    #     root_name
     return new_ckpt
 
 
@@ -515,22 +511,14 @@ class NVEmbedV2Encoder(torch.nn.Module):
     def __init__(self, clip_weight="nvidia/NV-Embed-v2"):
         # https://huggingface.co/spaces/mteb/leaderboard https://huggingface.co/nvidia/NV-Embed-v2
         # https://arxiv.org/pdf/2405.17428
+        from transformers import AutoModel
         super().__init__()
-        from sentence_transformers import SentenceTransformer
-        import os
         os.environ["TOKENIZERS_PARALLELISM"] = "true"  # To suppress warnings.
 
-        self.model = SentenceTransformer(clip_weight, trust_remote_code=True)
-        self.model.max_seq_length = 32768
-        self.model.tokenizer.padding_side="right"
+        self.model = AutoModel.from_pretrained(clip_weight, trust_remote_code=True)
 
     def __call__(self, texts, **kwargs):
-        def add_eos(input_examples):
-            input_examples = [input_example + self.model.tokenizer.eos_token for input_example in input_examples]
-            return input_examples
-        texts = add_eos(texts)
-        embeddings = self.model.encode(texts, batch_size=len(texts), show_progress_bar=False, convert_to_tensor=True)
-        # normalize_embeddings=True
+        embeddings = self.model.encode(texts, instruction="", max_length=32768)
         return embeddings
 
 
@@ -598,7 +586,11 @@ def get_text_encoder(weight, text_encoder_weight=None):
 
     if text_encoder_weight is not None:
         weights = torch.load(text_encoder_weight, map_location='cpu', weights_only=False)
-        weights = weights['model']
+        weights = weights['model'] if 'model' in weights else weights
+        if any(['module.ar.runtime.' in k for k in weights]):
+            print(f' loading EVAR weight {text_encoder_weight} by removing "module.ar.runtime." from keys.')
+            renamed = {k.replace('module.ar.runtime.', ''): weights[k] for k in weights}
+            weights = renamed
         weights = extract_weight(weights, 'text_encoder.')
         print(f' using model.text_encoder from {text_encoder_weight}')
         text_model.load_state_dict(weights)
