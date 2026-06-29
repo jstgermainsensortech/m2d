@@ -440,12 +440,12 @@ def main(args):
     loss_scaler = NativeScaler()
 
     if args.finetune:
-        checkpoint = torch.load(args.finetune, map_location='cpu', weights_only=False)
+        checkpoint = torch.load(args.finetune, map_location='cpu')
         model_without_ddp.load_state_dict(checkpoint['model'], strict=False)
         print(f'Fine-tunning the checkpoint {args.finetune}')
 
     if args.load_textenc:
-        checkpoint = torch.load(args.load_textenc, map_location='cpu', weights_only=False)
+        checkpoint = torch.load(args.load_textenc, map_location='cpu')
         model_without_ddp.text_encoder.load_state_dict(checkpoint['model'], strict=True)
         print(f'Loaded text encoder weight {args.load_textenc}')
 
